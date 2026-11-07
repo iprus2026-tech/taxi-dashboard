@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <title>Такси · панель водителя</title>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  >
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-status="{{ state.status }}">
+  <header class="topbar">
+    <div class="topbar__inner">
+      <div class="brand">
+        <span class="brand__logo" aria-hidden="true">🚕</span>
+        <div class="brand__text">
+          <h1 class="brand__title">Такси<span class="brand__title-extra"> · панель водителя</span></h1>
+          <p class="brand__subtitle">Статус, данные автомобиля, пробег и деньги</p>
+        </div>
+      </div>
+
+      <div
+        class="weather"
+        id="weather"
+        data-state="loading"
+        role="status"
+        aria-label="Погода в Москве"
+      >
+        <span class="weather__icon" id="weather-icon" aria-hidden="true">🌤️</span>
+        <div class="weather__body">
+          <div class="weather__row">
+            <span class="weather__temp" id="weather-temp">—</span>
+            <span class="weather__desc" id="weather-desc">Погода</span>
+          </div>
+          <span class="weather__wind" id="weather-wind">Ветер —</span>
+        </div>
+      </div>
+
+      <div class="topbar__actions">
+        <button
+          type="button"
+          class="history-toggle"
+          id="history-btn"
+          aria-haspopup="dialog"
+          aria-controls="history-screen"
+        >
+          <span class="history-toggle__icon" aria-hidden="true">🕘</span>
+          <span>История</span>
+        </button>
+
+        <div class="status-chip" id="status-chip" data-status="{{ state.status }}">
+          <span class="status-chip__dot" aria-hidden="true"></span>
+          <span class="status-chip__label" id="status-chip-label">{{ status_labels[state.status] }}</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <!-- Профиль авто -->
+    <section class="card" aria-labelledby="car-title">
+      <h2 class="card__title" id="car-title">Профиль авто</h2>
+      <p class="card__hint">Данные видны диспетчеру и пассажирам при назначении заказа.</p>
+
+      <form class="car-form" id="car-form" novalidate>
+        <div class="field">
+          <label class="field__label" for="car-brand">Марка автомобиля</label>
+          <input
+            class="field__input"
+            id="car-brand"
+            name="car_brand"
+            type="text"
+            maxlength="80"
+            placeholder="Например, Toyota Camry"
+            autocomplete="off"
+            value="{{ state.car_brand }}"
+          >
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="car-plate">Госномер</label>
+          <input
+            class="field__input"
+            id="car-plate"
+            name="car_plate"
+            type="text"
+            maxlength="20"
+            placeholder="Например, А123ВС77"
+            autocomplete="off"
+            autocapitalize="characters"
+            value="{{ state.car_plate }}"
+          >
+        </div>
+
+        <button class="btn btn--save" type="submit" id="car-save">
+          Сохранить
+        </button>
+      </form>
+    </section>
+
+    <!-- Карта, пробег и деньги -->
+    <section class="card card--map" aria-labelledby="map-title">
+      <h2 class="card__title" id="map-title">Карта</h2>
+      <p class="card__hint">Включите отслеживание — приложение само построит маршрут и посчитает пробег по GPS.</p>
+
+      <div class="map-wrap">
+        <div id="map" role="application" aria-label="Интерактивная карта Москвы"></div>
+        <button
+          type="button"
+          class="drive-toggle"
+          id="drive-toggle"
+          aria-pressed="false"
+          title="Скрыть панели и оставить карту на весь экран"
+        >
+          <span aria-hidden="true">🚗</span>
+          <span>Режим за рулем</span>
+        </button>
+      </div>
+
+      <!-- Пробег -->
+      <div class="mileage" aria-labelledby="mileage-title">
+        <div class="mileage__head">
+          <div>
+            <h3 class="mileage__title" id="mileage-title">Пробег</h3>
+            <p class="mileage__hint" id="mileage-hint">
+              Точки маршрута добавляются автоматически каждые 75 метров.
+            </p>
+          </div>
+          <span class="shift-started" id="shift-started"></span>
+        </div>
+
+        <div class="mileage__stats">
+          <div class="mileage__stat">
+            <span class="mileage__label">За смену</span>
+            <span class="mileage__value" id="total-distance" aria-live="polite">0,00 км</span>
+          </div>
+
+          <div class="mileage__stat">
+            <span class="mileage__label">Последний отрезок</span>
+            <span class="mileage__value mileage__value--small" id="last-distance">—</span>
+          </div>
+
+          <div class="mileage__stat">
+            <span class="mileage__label">Точек</span>
+            <span class="mileage__value mileage__value--small" id="marker-count">0</span>
+          </div>
+        </div>
+
+        <div class="mileage__actions">
+          <button
+            type="button"
+            class="btn btn--track"
+            id="track-btn"
+            aria-pressed="false"
+          >
+            Начать отслеживание
+          </button>
+
+          <button
+            type="button"
+            class="btn btn--reset"
+            id="reset-mileage"
+          >
+            Сбросить пробег
+          </button>
+        </div>
+
+        <p class="geo-hint">
+          При первом запуске браузер запросит доступ к геолокации — нажмите «Разрешить».
+        </p>
+        <p class="geo-status" id="geo-status" role="status">Отслеживание выключено</p>
+        <p class="geo-alert" id="geo-alert" role="alert" hidden></p>
+
+        <details class="geo-help" id="geo-help">
+          <summary class="geo-help__summary">Как включить геолокацию</summary>
+          <div class="geo-help__body">
+            <p>Если окно с запросом не появилось или доступ уже запрещён:</p>
+            <ul>
+              <li>
+                <strong>Chrome / Android:</strong> значок замка или ⓘ рядом с адресом →
+                «Разрешения» → «Геолокация» → «Разрешить», затем обновите страницу.
+              </li>
+              <li>
+                <strong>Safari / iPad:</strong> «аА» в адресной строке →
+                «Настройки для сайта» → «Геолокация» → «Разрешить».
+              </li>
+            </ul>
+            <p class="geo-help__warning">
+              Геолокация работает только по HTTPS или на localhost. Если приложение открыто
+              по локальному IP (http://192.168…), браузер заблокирует GPS — запускайте его
+              на самом планшете по http://127.0.0.1:5000 либо используйте HTTPS.
+            </p>
+            <p>
+              Для точности включите GPS и держите планшет с прямым обзором неба.
+              Первые 50–100 метров могут быть неточными. Если статус долго показывает
+              «ждём улучшения сигнала», выйдите на открытое место.
+            </p>
+          </div>
+        </details>
+      </div>
+
+      <!-- Деньги -->
+      <div class="money" aria-labelledby="money-title">
+        <div class="money__head">
+          <h3 class="money__title" id="money-title">Деньги</h3>
+          <p class="money__hint">Заказы и расходы текущей смены</p>
+        </div>
+
+        <div class="money__grid">
+          <div class="money__stat">
+            <span class="money__label">Выручка</span>
+            <span class="money__value" id="revenue">0 ₽</span>
+          </div>
+
+          <div class="money__stat">
+            <span class="money__label">Расходы</span>
+            <span class="money__value money__value--expense" id="expenses-total">0 ₽</span>
+          </div>
+
+          <div class="money__profit">
+            <span class="money__label">Чистая прибыль</span>
+            <span class="money__profit-value" id="profit">0 ₽</span>
+          </div>
+        </div>
+
+        <div class="money__actions">
+          <button
+            type="button"
+            class="btn btn--order"
+            id="add-order-btn"
+            aria-expanded="false"
+            aria-controls="order-form"
+          >
+            + Заказ
+          </button>
+
+          <button
+            type="button"
+            class="btn btn--expense"
+            id="add-expense-btn"
+            aria-expanded="false"
+            aria-controls="expense-form"
+          >
+            + Расход
+          </button>
+        </div>
+
+        <form class="money-form" id="order-form" hidden>
+          <label class="money-form__label" for="order-amount">Сумма заказа, ₽</label>
+          <div class="money-form__row">
+            <input
+              class="field__input money-form__input"
+              id="order-amount"
+              name="amount"
+              type="number"
+              inputmode="decimal"
+              min="1"
+              max="10000000"
+              step="0.01"
+              placeholder="Например, 450"
+              required
+            >
+            <button class="btn btn--order" type="submit">Добавить</button>
+            <button class="btn btn--ghost" type="button" data-close-form="order-form">Отмена</button>
+          </div>
+        </form>
+
+        <form class="money-form" id="expense-form" hidden>
+          <label class="money-form__label" for="expense-amount">Сумма расхода, ₽</label>
+          <div class="money-form__row">
+            <input
+              class="field__input money-form__input"
+              id="expense-amount"
+              name="amount"
+              type="number"
+              inputmode="decimal"
+              min="1"
+              max="10000000"
+              step="0.01"
+              placeholder="Например, 800"
+              required
+            >
+            <select
+              class="field__input money-form__select"
+              id="expense-category"
+              name="category"
+              aria-label="Категория расхода"
+            >
+              {% for key, label in expense_categories.items() %}
+              <option value="{{ key }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn--expense" type="submit">Добавить</button>
+            <button class="btn btn--ghost" type="button" data-close-form="expense-form">Отмена</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Завершение смены -->
+      <div class="shift-footer">
+        <button type="button" class="btn btn--finish" id="finish-shift">
+          Завершить смену
+        </button>
+        <p class="shift-footer__hint">Итоги сохранятся в историю, счётчики обнулятся.</p>
+      </div>
+    </section>
+
+    <!-- Статус -->
+    <section class="card status-card" aria-labelledby="status-title">
+      <h2 class="card__title" id="status-title">Мой статус</h2>
+      <p class="card__hint">Нажмите кнопку, чтобы сообщить о готовности принимать заказы.</p>
+
+      <div class="status-grid" role="group" aria-label="Выбор статуса водителя">
+        <button
+          type="button"
+          class="status-btn status-btn--free"
+          data-status="free"
+          aria-pressed="{{ 'true' if state.status == 'free' else 'false' }}"
+        >
+          <span class="status-btn__dot" aria-hidden="true"></span>
+          <span class="status-btn__label">Свободен</span>
+        </button>
+
+        <button
+          type="button"
+          class="status-btn status-btn--busy"
+          data-status="busy"
+          aria-pressed="{{ 'true' if state.status == 'busy' else 'false' }}"
+        >
+          <span class="status-btn__dot" aria-hidden="true"></span>
+          <span class="status-btn__label">На заказе</span>
+        </button>
+
+        <button
+          type="button"
+          class="status-btn status-btn--offline"
+          data-status="offline"
+          aria-pressed="{{ 'true' if state.status == 'offline' else 'false' }}"
+        >
+          <span class="status-btn__dot" aria-hidden="true"></span>
+          <span class="status-btn__label">Не на линии</span>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Режим за рулем -->
+  <div class="drive-topbar" id="drive-topbar">
+    <span class="drive-topbar__label">
+      <span aria-hidden="true">🚗</span>
+      За рулем
+    </span>
+    <button type="button" class="drive-exit" id="drive-exit">Выйти</button>
+  </div>
+
+  <!-- История смен -->
+  <div
+    class="history-screen"
+    id="history-screen"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="history-title"
+    hidden
+  >
+    <div class="history-screen__top">
+      <div class="history-screen__titles">
+        <h2 class="history-screen__title" id="history-title">История смен</h2>
+        <p class="history-screen__subtitle">Завершённые смены и журнал операций</p>
+      </div>
+
+      <button type="button" class="btn btn--back" id="history-close">
+        Вернуться к текущей смене
+      </button>
+    </div>
+
+    <div class="history-screen__body">
+      <p class="history-status" id="history-loading">Загружаем историю…</p>
+      <p class="history-status" id="history-empty" hidden>
+        Пока нет завершённых смен. Завершите смену — она появится здесь.
+      </p>
+      <div class="history-list" id="history-list"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
