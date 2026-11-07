@@ -104,6 +104,18 @@ const els = {
   weatherWind: document.getElementById("weather-wind"),
   driveToggle: document.getElementById("drive-toggle"),
   driveExit: document.getElementById("drive-exit"),
+  statusCard: document.querySelector(".status-card"),
+  fabOrder: document.getElementById("fab-order"),
+  fabExpense: document.getElementById("fab-expense"),
+  moneyModal: document.getElementById("money-modal"),
+  moneyModalTitle: document.getElementById("money-modal-title"),
+  moneyModalSubtitle: document.getElementById("money-modal-subtitle"),
+  moneyModalClose: document.getElementById("money-modal-close"),
+  expenseCategories: document.getElementById("expense-categories"),
+  amountDisplay: document.getElementById("amount-display"),
+  amountHint: document.getElementById("amount-hint"),
+  keypad: document.getElementById("keypad"),
+  moneySubmit: document.getElementById("money-submit"),
 };
 
 const emptyShift = () => ({
@@ -1109,6 +1121,10 @@ function setDrivingMode(enabled) {
     closeMoneyForms();
   }
 
+  if (!enabled) {
+    document.body.style.removeProperty("--drive-bar-height");
+  }
+
   document.body.classList.toggle("driving-mode", enabled);
 
   if (els.driveToggle) {
@@ -1117,6 +1133,7 @@ function setDrivingMode(enabled) {
 
   const refreshMapSize = () => {
     if (map) map.invalidateSize();
+    updateDriveBarHeight();
   };
   window.requestAnimationFrame(refreshMapSize);
   window.setTimeout(refreshMapSize, 150);
@@ -1125,6 +1142,186 @@ function setDrivingMode(enabled) {
     if (els.driveExit) els.driveExit.focus({ preventScroll: true });
   } else if (els.driveToggle) {
     els.driveToggle.focus({ preventScroll: true });
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Быстрое добавление заказа / расхода
+   -------------------------------------------------------------------------- */
+
+const QUICK_MAX_AMOUNT = 10_000_000;
+
+const quickEntry = {
+  mode: "order",
+  amount: 0,
+  category: "fuel",
+  saving: false,
+};
+
+let quickEntryReturnFocus = null;
+
+function quickEntryIsOpen() {
+  return Boolean(els.moneyModal && !els.moneyModal.hidden);
+}
+
+function updateDriveBarHeight() {
+  if (!document.body.classList.contains("driving-mode")) return;
+  if (!els.statusCard) return;
+
+  const height = Math.ceil(els.statusCard.getBoundingClientRect().height);
+  if (height > 0) {
+    document.body.style.setProperty("--drive-bar-height", `${height}px`);
+  }
+}
+
+function updateQuickEntryUI() {
+  if (!els.moneyModal) return;
+
+  const isExpense = quickEntry.mode === "expense";
+
+  if (els.moneyModalTitle) {
+    els.moneyModalTitle.textContent = isExpense ? "Новый расход" : "Новый заказ";
+  }
+  if (els.moneyModalSubtitle) {
+    els.moneyModalSubtitle.textContent = isExpense
+      ? "Сумма и категория расхода"
+      : "Сумма чека";
+  }
+  if (els.expenseCategories) {
+    els.expenseCategories.hidden = !isExpense;
+  }
+  if (els.amountDisplay) {
+    els.amountDisplay.textContent = formatMoney(quickEntry.amount);
+  }
+  if (els.amountHint) {
+    els.amountHint.textContent = isExpense ? "Введите сумму расхода" : "Введите сумму чека";
+  }
+
+  if (els.keypad) {
+    for (const button of els.keypad.querySelectorAll("button")) {
+      if (button === els.moneySubmit) continue;
+      button.disabled = quickEntry.saving;
+    }
+  }
+
+  if (els.moneySubmit) {
+    els.moneySubmit.disabled = quickEntry.saving || quickEntry.amount <= 0;
+    els.moneySubmit.textContent = quickEntry.saving ? "Сохраняем…" : "ОК";
+  }
+
+  if (els.moneyModalClose) {
+    els.moneyModalClose.disabled = quickEntry.saving;
+  }
+
+  if (els.expenseCategories) {
+    for (const chip of els.expenseCategories.querySelectorAll("[data-category]")) {
+      chip.setAttribute(
+        "aria-pressed",
+        chip.dataset.category === quickEntry.category ? "true" : "false"
+      );
+      chip.disabled = quickEntry.saving;
+    }
+  }
+}
+
+function openQuickEntry(mode) {
+  if (!els.moneyModal || !document.body.classList.contains("driving-mode")) return;
+
+  quickEntry.mode = mode === "expense" ? "expense" : "order";
+  quickEntry.amount = 0;
+  quickEntry.category = "fuel";
+  quickEntry.saving = false;
+  quickEntryReturnFocus = quickEntry.mode === "expense" ? els.fabExpense : els.fabOrder;
+
+  updateQuickEntryUI();
+  els.moneyModal.hidden = false;
+
+  if (els.moneyModalClose) {
+    els.moneyModalClose.focus({ preventScroll: true });
+  }
+}
+
+function closeQuickEntry() {
+  if (!els.moneyModal || els.moneyModal.hidden || quickEntry.saving) return;
+
+  els.moneyModal.hidden = true;
+  const target = quickEntryReturnFocus;
+  quickEntryReturnFocus = null;
+
+  if (target && document.body.classList.contains("driving-mode")) {
+    target.focus({ preventScroll: true });
+  }
+}
+
+function appendQuickDigit(digit) {
+  if (quickEntry.saving || !quickEntryIsOpen()) return;
+
+  const next = quickEntry.amount * 10 + digit;
+  if (next > QUICK_MAX_AMOUNT) return;
+
+  quickEntry.amount = next;
+  updateQuickEntryUI();
+}
+
+function backspaceQuickDigit() {
+  if (quickEntry.saving || !quickEntryIsOpen()) return;
+  quickEntry.amount = Math.floor(quickEntry.amount / 10);
+  updateQuickEntryUI();
+}
+
+function clearQuickAmount() {
+  if (quickEntry.saving || !quickEntryIsOpen()) return;
+  quickEntry.amount = 0;
+  updateQuickEntryUI();
+}
+
+function selectQuickCategory(category) {
+  if (quickEntry.saving || !quickEntryIsOpen()) return;
+  if (!Object.prototype.hasOwnProperty.call(EXPENSE_LABELS, category)) return;
+
+  quickEntry.category = category;
+  updateQuickEntryUI();
+}
+
+async function submitQuickEntry() {
+  if (quickEntry.saving || quickEntry.amount <= 0) return;
+
+  const mode = quickEntry.mode;
+  const amount = quickEntry.amount;
+  const category = quickEntry.category;
+
+  quickEntry.saving = true;
+  updateQuickEntryUI();
+
+  try {
+    const data =
+      mode === "expense"
+        ? await requestJSON("/api/expenses", {
+            method: "POST",
+            body: JSON.stringify({ amount, category }),
+          })
+        : await requestJSON("/api/orders", {
+            method: "POST",
+            body: JSON.stringify({ amount }),
+          });
+
+    renderShift(data.state.shift);
+    quickEntry.saving = false;
+    closeQuickEntry();
+
+    if (mode === "expense") {
+      showToast(`Расход добавлен: ${EXPENSE_LABELS[category]} — ${formatMoney(amount)}`);
+    } else {
+      showToast(`Заказ добавлен: ${formatMoney(amount)}`);
+    }
+  } catch (error) {
+    showToast(
+      error instanceof Error ? error.message : "Не удалось сохранить операцию",
+      "error"
+    );
+  } finally {
+    quickEntry.saving = false;
+    updateQuickEntryUI();
   }
 }
 
@@ -1362,6 +1559,7 @@ function initMap() {
     }
     resizeTimer = window.setTimeout(() => {
       if (map) map.invalidateSize();
+      updateDriveBarHeight();
       resizeTimer = null;
     }, 150);
   });
@@ -1430,6 +1628,51 @@ function bindEvents() {
     els.driveExit.addEventListener("click", () => setDrivingMode(false));
   }
 
+  if (els.fabOrder) {
+    els.fabOrder.addEventListener("click", () => openQuickEntry("order"));
+  }
+
+  if (els.fabExpense) {
+    els.fabExpense.addEventListener("click", () => openQuickEntry("expense"));
+  }
+
+  if (els.moneyModalClose) {
+    els.moneyModalClose.addEventListener("click", closeQuickEntry);
+  }
+
+  if (els.moneyModal) {
+    els.moneyModal.addEventListener("click", (event) => {
+      if (event.target === els.moneyModal) closeQuickEntry();
+    });
+  }
+
+  if (els.keypad) {
+    els.keypad.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-key]");
+      if (!button) return;
+
+      const key = button.dataset.key;
+      if (key === "clear") {
+        clearQuickAmount();
+      } else if (key === "backspace") {
+        backspaceQuickDigit();
+      } else if (/^\d$/.test(key)) {
+        appendQuickDigit(Number(key));
+      }
+    });
+  }
+
+  if (els.expenseCategories) {
+    els.expenseCategories.addEventListener("click", (event) => {
+      const chip = event.target.closest("[data-category]");
+      if (chip) selectQuickCategory(chip.dataset.category);
+    });
+  }
+
+  if (els.moneySubmit) {
+    els.moneySubmit.addEventListener("click", submitQuickEntry);
+  }
+
   if (els.historyClose) {
     els.historyClose.addEventListener("click", closeHistory);
   }
@@ -1449,6 +1692,25 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (els.moneyModal && !els.moneyModal.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeQuickEntry();
+        return;
+      }
+      if (event.key === "Backspace") {
+        event.preventDefault();
+        backspaceQuickDigit();
+        return;
+      }
+      if (/^\d$/.test(event.key)) {
+        event.preventDefault();
+        appendQuickDigit(Number(event.key));
+        return;
+      }
+      return;
+    }
+
     if (event.key !== "Escape") return;
     if (document.body.classList.contains("driving-mode")) {
       setDrivingMode(false);

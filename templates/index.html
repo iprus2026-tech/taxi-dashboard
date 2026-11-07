@@ -352,6 +352,28 @@
     </section>
   </main>
 
+  <!-- Быстрые действия в режиме за рулем -->
+  <div class="drive-fabs" id="drive-fabs">
+    <button
+      type="button"
+      class="fab fab--order"
+      id="fab-order"
+      title="Добавить заказ"
+      aria-label="Добавить заказ"
+    >
+      +₽
+    </button>
+    <button
+      type="button"
+      class="fab fab--expense"
+      id="fab-expense"
+      title="Добавить расход"
+      aria-label="Добавить расход"
+    >
+      −₽
+    </button>
+  </div>
+
   <!-- Режим за рулем -->
   <div class="drive-topbar" id="drive-topbar">
     <span class="drive-topbar__label">
@@ -387,6 +409,87 @@
         Пока нет завершённых смен. Завершите смену — она появится здесь.
       </p>
       <div class="history-list" id="history-list"></div>
+    </div>
+  </div>
+
+  <!-- Быстрое добавление заказа / расхода -->
+  <div
+    class="money-modal"
+    id="money-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="money-modal-title"
+    hidden
+  >
+    <div class="money-modal__dialog">
+      <div class="money-modal__head">
+        <div>
+          <h2 class="money-modal__title" id="money-modal-title">Новый заказ</h2>
+          <p class="money-modal__subtitle" id="money-modal-subtitle">Сумма чека</p>
+        </div>
+        <button
+          type="button"
+          class="money-modal__close"
+          id="money-modal-close"
+          aria-label="Закрыть"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div
+        class="categories"
+        id="expense-categories"
+        role="group"
+        aria-label="Категория расхода"
+        hidden
+      >
+        <button type="button" class="category-chip" data-category="fuel" aria-pressed="true">
+          Бензин
+        </button>
+        <button type="button" class="category-chip" data-category="wash" aria-pressed="false">
+          Мойка
+        </button>
+        <button type="button" class="category-chip" data-category="food" aria-pressed="false">
+          Еда
+        </button>
+        <button type="button" class="category-chip" data-category="fine" aria-pressed="false">
+          Штраф
+        </button>
+      </div>
+
+      <div class="amount-display" id="amount-display" aria-live="polite">0 ₽</div>
+      <p class="amount-hint" id="amount-hint">Введите сумму чека</p>
+
+      <div class="keypad" id="keypad">
+        <button type="button" class="keypad__key" data-key="1">1</button>
+        <button type="button" class="keypad__key" data-key="2">2</button>
+        <button type="button" class="keypad__key" data-key="3">3</button>
+        <button type="button" class="keypad__key" data-key="4">4</button>
+        <button type="button" class="keypad__key" data-key="5">5</button>
+        <button type="button" class="keypad__key" data-key="6">6</button>
+        <button type="button" class="keypad__key" data-key="7">7</button>
+        <button type="button" class="keypad__key" data-key="8">8</button>
+        <button type="button" class="keypad__key" data-key="9">9</button>
+        <button
+          type="button"
+          class="keypad__key keypad__key--util"
+          data-key="clear"
+          aria-label="Очистить сумму"
+        >
+          C
+        </button>
+        <button type="button" class="keypad__key" data-key="0">0</button>
+        <button
+          type="button"
+          class="keypad__key keypad__key--util"
+          data-key="backspace"
+          aria-label="Удалить последнюю цифру"
+        >
+          ←
+        </button>
+        <button type="button" class="keypad__ok" id="money-submit" disabled>ОК</button>
+      </div>
     </div>
   </div>
 
