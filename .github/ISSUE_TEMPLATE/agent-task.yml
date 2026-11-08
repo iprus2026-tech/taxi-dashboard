@@ -1,0 +1,126 @@
+name: Agent task
+description: Задача для одного агента по протоколу docs/agents/PROTOCOL.md
+title: "[TAXI-AREA-NN] "
+labels: ["status:backlog"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Протокол: `docs/agents/PROTOCOL.md`.
+        - У задачи один исполнитель. Label `agent:*` ставит координатор; поле ниже его не ставит.
+        - CLAIM — это заявка, а не блокировка. Работу начинают только после `ASSIGN` от координатора.
+        - Комментарии общего аккаунта не подтверждают личность владельца. Owner Approval действует только процедурно; auto-merge и автоматический deploy запрещены.
+  - type: input
+    id: task_id
+    attributes:
+      label: Task ID
+      description: "Формат TAXI-<AREA>-<NN>[.<step>]; повторите его в начале заголовка. Перед созданием проверьте, что такого ID ещё нет."
+      placeholder: TAXI-UI-STYLE-01.2
+    validations:
+      required: true
+  - type: input
+    id: parent
+    attributes:
+      label: Parent
+      description: Номер родительской задачи, если есть
+      placeholder: "#12"
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent (exactly one)
+      options:
+        - owner
+        - gpt
+        - claude-code
+        - claude-design
+        - deepseek-qa
+    validations:
+      required: true
+  - type: textarea
+    id: depends_on
+    attributes:
+      label: Depends on
+      description: "Задачи, которые должны быть в status:done до перехода в ready. По одной на строку; если зависимостей нет — none."
+      placeholder: "#12"
+    validations:
+      required: true
+  - type: input
+    id: base_sha
+    attributes:
+      label: Base SHA
+      description: Полный git SHA из 40 hex-символов
+      placeholder: 8dc3402f84eb817266360fa83f66f01766ef4bc4
+    validations:
+      required: true
+  - type: textarea
+    id: allowed_paths
+    attributes:
+      label: Allowed paths
+      description: "Только эти пути могут меняться. Пути не должны пересекаться с другими активными задачами. Для задач без изменений в git — none."
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden_paths
+    attributes:
+      label: Forbidden paths
+      description: Защищённые компоненты (PROTOCOL §2). Исключение возможно только по отдельному письменному разрешению владельца.
+      render: text
+      value: |
+        app.py
+        storage.py
+        bootstrap_storage.py
+        static/script.js
+        static/style.css
+        templates/index.html
+        static/mapbox-token*.json
+        production JSON/SQLite, резервные копии, runtime-данные
+        .github/**
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Нумерованные проверяемые критерии (AC-1, AC-2, …)
+      placeholder: |
+        AC-1: …
+        AC-2: …
+    validations:
+      required: true
+  - type: checkboxes
+    id: gates
+    attributes:
+      label: Owner gates required
+      options:
+        - label: G0-intake
+        - label: G1-design
+        - label: G2-merge
+        - label: G3-deploy
+  - type: input
+    id: lease
+    attributes:
+      label: Lease
+      description: "Срок аренды после ASSIGN или RESUME. По истечении — BLOCKED, без автоматической передачи."
+      value: 24h
+    validations:
+      required: true
+  - type: input
+    id: qa_port
+    attributes:
+      label: QA port
+      description: "Только для QA-задач. Порты 5000 (production), 5001 (Mapbox Preview) и 5002 (резерв) запрещены. Перед запуском проверить, что порт свободен."
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Expected artifacts
+      description: "Каждый результат = общедоступный адрес (permalink на commit SHA или вложение GitHub) + SHA-256. Локальные пути недействительны."
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: Задача не затрагивает production, работающие сервисы, секреты, Mapbox-токены и production JSON/SQLite
+          required: true
+        - label: Задача не требует auto-merge, автоматического deploy или GitHub Actions
+          required: true
