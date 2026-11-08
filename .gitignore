@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 driver_state.json
 shift_history.json
+static/mapbox-token.json
+.storage.lock
+storage_meta.json
+.storage_blocked.json

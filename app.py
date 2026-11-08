@@ -10,20 +10,29 @@
 
 from __future__ import annotations
 
-import json
+import csv
+import io
 import math
 import os
 import threading
 import uuid
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
+
+from storage import StorageFailure, StorageManager
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "driver_state.json")
-HISTORY_FILE = os.path.join(BASE_DIR, "shift_history.json")
 
 app = Flask(__name__)
+storage = StorageManager(BASE_DIR)
+
+
+@app.errorhandler(StorageFailure)
+def _handle_storage_failure(error: StorageFailure):
+    """Return a safe 503; never include GPS or financial values."""
+    return jsonify({"error": error.code, "message": error.message}), 503
+
 
 ALLOWED_STATUSES = ("free", "busy", "offline")
 
@@ -42,6 +51,9 @@ EXPENSE_CATEGORIES = {
 
 MAX_AMOUNT = 10_000_000.0
 EARTH_RADIUS_M = 6_371_000.0
+
+DEFAULT_TAX_RATE = 6.0
+MAX_TAX_RATE = 30.0
 
 _state_lock = threading.RLock()
 
@@ -215,35 +227,29 @@ def _normalise_shift(raw) -> dict:
     return shift
 
 
+def _normalise_settings(raw) -> dict:
+    rate = DEFAULT_TAX_RATE
+    if isinstance(raw, dict):
+        value = _to_float(raw.get("tax_rate"))
+        if value is not None and 0.0 <= value <= MAX_TAX_RATE:
+            rate = round(value, 2)
+    return {"tax_rate": rate}
+
+
 def _empty_state() -> dict:
     return {
         "car_brand": "",
         "car_plate": "",
         "status": "offline",
+        "settings": {"tax_rate": DEFAULT_TAX_RATE},
         "shift": _new_shift(),
     }
 
 
-def _read_json(path: str, fallback):
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except (FileNotFoundError, OSError, ValueError):
-        return fallback
-
-
-def _write_json(path: str, data) -> None:
-    """Атомарная запись JSON, чтобы файл не остался битым."""
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, path)
-
-
 def _read_state() -> dict:
+    """Read and normalise state; never writes during read."""
+    data = storage.read_state()
     state = _empty_state()
-    data = _read_json(DATA_FILE, None)
-    needs_persist = True
 
     if isinstance(data, dict):
         brand = data.get("car_brand")
@@ -258,26 +264,15 @@ def _read_state() -> dict:
             state["status"] = data["status"]
 
         raw_shift = data.get("shift")
-        needs_persist = (
-            not isinstance(raw_shift, dict)
-            or not isinstance(raw_shift.get("started_at"), str)
-            or not raw_shift.get("started_at")
-        )
+        raw_settings = data.get("settings")
         state["shift"] = _normalise_shift(raw_shift)
-
-    if needs_persist:
-        # Первый запуск или старый формат файла: фиксируем смену на диске,
-        # чтобы время её начала не менялось от запроса к запросу.
-        try:
-            _write_state(state)
-        except OSError:
-            pass
+        state["settings"] = _normalise_settings(raw_settings)
 
     return state
 
 
 def _write_state(state: dict) -> None:
-    _write_json(DATA_FILE, state)
+    storage.write_state(state)
 
 
 def _shift_totals(shift: dict) -> dict:
@@ -335,11 +330,7 @@ def _archive_shift(shift: dict, car_brand: str = "", car_plate: str = "") -> dic
 
 
 def _append_history(record: dict) -> None:
-    history = _read_json(HISTORY_FILE, [])
-    if not isinstance(history, list):
-        history = []
-    history.append(record)
-    _write_json(HISTORY_FILE, history)
+    storage.append_history(record)
 
 
 def _normalise_history_record(raw) -> dict | None:
@@ -407,10 +398,7 @@ def api_state():
 def api_history():
     """Завершённые смены с детальным журналом операций, новые сверху."""
     with _state_lock:
-        records = _read_json(HISTORY_FILE, [])
-
-    if not isinstance(records, list):
-        records = []
+        records = storage.read_history()
 
     normalized = [
         record
@@ -420,6 +408,77 @@ def api_history():
     normalized.reverse()
 
     return jsonify({"shifts": normalized})
+
+
+def _history_sort_time(record: dict) -> datetime:
+    for key in ("finished_at", "started_at"):
+        parsed = _now_from_iso(record.get(key))
+        if parsed is not None:
+            return parsed
+    return datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+def _csv_date(record: dict) -> str:
+    for key in ("finished_at", "started_at"):
+        parsed = _now_from_iso(record.get(key))
+        if parsed is not None:
+            return parsed.strftime("%d.%m.%Y")
+    return ""
+
+
+@app.get("/api/history/export.csv")
+def export_history_csv():
+    """Выгружает завершённые смены в CSV для КУДиР (UTF-8 BOM, ';')."""
+    with _state_lock:
+        raw_records = storage.read_history()
+
+    records = [
+        record
+        for record in (_normalise_history_record(item) for item in raw_records)
+        if record is not None
+    ]
+    records.sort(key=_history_sort_time)
+
+    output = io.StringIO(newline="")
+    output.write("\ufeff")
+
+    writer = csv.writer(
+        output,
+        delimiter=";",
+        lineterminator="\r\n",
+        quoting=csv.QUOTE_MINIMAL,
+    )
+    writer.writerow(
+        ["Дата", "Номер документа", "Сумма дохода", "Расходы", "Примечание"]
+    )
+
+    for index, record in enumerate(records, start=1):
+        revenue = float(record.get("revenue") or 0.0)
+        expenses = float(record.get("expenses_total") or 0.0)
+        distance = float(record.get("distance_km") or 0.0)
+        orders = int(record.get("orders_count") or 0)
+
+        note = f"Пробег: {distance:.2f} км; заказов: {orders}".replace(".", ",")
+
+        writer.writerow(
+            [
+                _csv_date(record),
+                f"СМ-{index:04d}",
+                f"{revenue:.2f}".replace(".", ","),
+                f"{expenses:.2f}".replace(".", ","),
+                note,
+            ]
+        )
+
+    filename = f"taxi_kyudir_{datetime.now().strftime('%Y-%m-%d')}.csv"
+    response = Response(
+        output.getvalue(),
+        content_type="text/csv; charset=utf-8",
+    )
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.headers["X-Shift-Count"] = str(len(records))
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.post("/api/car")
@@ -456,6 +515,25 @@ def api_status():
     with _state_lock:
         state = _read_state()
         state["status"] = status
+        _write_state(state)
+
+    return jsonify(state)
+
+
+@app.post("/api/settings")
+def api_settings():
+    """Сохраняет настройки, включая ставку налога УСН."""
+    payload = request.get_json(silent=True) or {}
+    rate = _to_float(payload.get("tax_rate"))
+
+    if rate is None or not (0.0 <= rate <= MAX_TAX_RATE):
+        return jsonify(
+            {"error": f"Ставка налога должна быть от 0 до {MAX_TAX_RATE:g}%."}
+        ), 400
+
+    with _state_lock:
+        state = _read_state()
+        state["settings"] = {"tax_rate": round(rate, 2)}
         _write_state(state)
 
     return jsonify(state)
