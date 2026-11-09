@@ -1,0 +1,128 @@
+name: Agent task
+description: Задача для одного агента по протоколу docs/agents/PROTOCOL.md
+title: "[TAXI-AREA-NN] "
+labels: ["status:backlog"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Протокол: `docs/agents/PROTOCOL.md`.
+        - У задачи один исполнитель. Label `agent:*` ставит координатор; поле ниже его не ставит.
+        - CLAIM — это заявка, а не блокировка. Работу начинают только после `ASSIGN` от координатора.
+        - Комментарии общего аккаунта не подтверждают личность владельца. Owner Approval действует только процедурно; auto-merge и автоматический deploy запрещены.
+        - Поля Task ID, Base SHA, Depends on, Allowed/Forbidden paths, Acceptance criteria и Owner gates образуют каноническую спецификацию (PROTOCOL §4.2). На G0 владелец утверждает её `issue_spec_sha256`. Любая правка этих полей после G0 переводит задачу в BLOCKED до нового G0.
+        - Форма работает только из ветки по умолчанию (`main`). Порядок активации — PROTOCOL §12.
+  - type: input
+    id: task_id
+    attributes:
+      label: Task ID
+      description: "Формат TAXI-<AREA>-<NN>[.<step>]; повторите его в начале заголовка. Перед созданием проверьте, что такого ID ещё нет."
+      placeholder: TAXI-UI-STYLE-01.2
+    validations:
+      required: true
+  - type: input
+    id: parent
+    attributes:
+      label: Parent
+      description: Номер родительской задачи, если есть
+      placeholder: "#12"
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent (exactly one)
+      options:
+        - owner
+        - gpt
+        - claude-code
+        - claude-design
+        - deepseek-qa
+    validations:
+      required: true
+  - type: textarea
+    id: depends_on
+    attributes:
+      label: Depends on
+      description: "Task ID задач, которые должны быть в status:done до перехода в ready (не номера Issues). По одному на строку; если зависимостей нет — none."
+      placeholder: TAXI-UI-STYLE-01.1
+    validations:
+      required: true
+  - type: input
+    id: base_sha
+    attributes:
+      label: Base SHA
+      description: Полный git SHA из 40 hex-символов
+      placeholder: 8dc3402f84eb817266360fa83f66f01766ef4bc4
+    validations:
+      required: true
+  - type: textarea
+    id: allowed_paths
+    attributes:
+      label: Allowed paths
+      description: "Только эти пути могут меняться: от корня репозитория, разделитель /, без ./ и ведущего /, по одному на строку. Пути не должны пересекаться с другими активными задачами. Для задач без изменений в git — none."
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden_paths
+    attributes:
+      label: Forbidden paths
+      description: "Пути и glob, по одному на строку, по тем же правилам. Исключение для защищённого файла — только по отдельному письменному разрешению владельца. Запреты PROTOCOL §2, не выраженные путями (production JSON/SQLite, резервные копии, runtime-данные, сервисы, секреты), действуют всегда."
+      render: text
+      value: |
+        .github/**
+        app.py
+        bootstrap_storage.py
+        static/mapbox-token*.json
+        static/script.js
+        static/style.css
+        storage.py
+        templates/index.html
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: "Проверяемые критерии, каждый в одну строку в формате AC-<n>: <текст>, нумерация с 1 подряд."
+      placeholder: |
+        AC-1: …
+        AC-2: …
+    validations:
+      required: true
+  - type: checkboxes
+    id: gates
+    attributes:
+      label: Owner gates required
+      description: Входит в каноническую спецификацию. G0 обязателен перед ASSIGN любой задачи (PROTOCOL §4.2, §9).
+      options:
+        - label: G0-intake
+        - label: G1-design
+        - label: G2-merge
+        - label: G3-deploy
+  - type: input
+    id: lease
+    attributes:
+      label: Lease
+      description: "Срок аренды после ASSIGN или RESUME. По истечении — BLOCKED, без автоматической передачи."
+      value: 24h
+    validations:
+      required: true
+  - type: input
+    id: qa_port
+    attributes:
+      label: QA port
+      description: "Только для QA-задач. Порты 5000 (production), 5001 (Mapbox Preview) и 5002 (резерв) запрещены. Перед запуском проверить, что порт свободен."
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Expected artifacts
+      description: "Каждый результат = общедоступный адрес (permalink на commit SHA или вложение GitHub) + SHA-256. Локальные пути недействительны."
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: Задача не затрагивает production, работающие сервисы, секреты, Mapbox-токены и production JSON/SQLite
+          required: true
+        - label: Задача не требует auto-merge, автоматического deploy или GitHub Actions
+          required: true
