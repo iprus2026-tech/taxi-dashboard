@@ -214,6 +214,33 @@
           <p class="money__hint">Заказы и расходы текущей смены</p>
         </div>
 
+        <details class="tax-settings" id="tax-settings">
+          <summary class="tax-settings__summary">
+            Ставка УСН: <strong id="tax-rate-current">6%</strong>
+          </summary>
+          <form class="tax-settings__form" id="tax-form">
+            <label class="tax-settings__label" for="tax-rate">Ставка налога, %</label>
+            <div class="tax-settings__row">
+              <input
+                class="field__input tax-settings__input"
+                id="tax-rate"
+                name="tax_rate"
+                type="number"
+                inputmode="decimal"
+                min="0"
+                max="30"
+                step="0.1"
+                value="6"
+                required
+              >
+              <button class="btn btn--save" type="submit" id="tax-save">Сохранить</button>
+            </div>
+            <p class="tax-settings__hint">
+              Налог УСН «Доходы» считается от выручки. Расходы его не уменьшают.
+            </p>
+          </form>
+        </details>
+
         <div class="money__grid">
           <div class="money__stat">
             <span class="money__label">Выручка</span>
@@ -225,7 +252,12 @@
             <span class="money__value money__value--expense" id="expenses-total">0 ₽</span>
           </div>
 
-          <div class="money__profit">
+          <div class="money__stat money__stat--tax" id="tax-card">
+            <span class="money__label" id="tax-label">Налог УСН (6%)</span>
+            <span class="money__value money__value--tax" id="tax-total">0 ₽</span>
+          </div>
+
+          <div class="money__profit" title="Выручка минус расходы. Налог УСН показан отдельно.">
             <span class="money__label">Чистая прибыль</span>
             <span class="money__profit-value" id="profit">0 ₽</span>
           </div>
@@ -398,9 +430,14 @@
         <p class="history-screen__subtitle">Завершённые смены и журнал операций</p>
       </div>
 
-      <button type="button" class="btn btn--back" id="history-close">
-        Вернуться к текущей смене
-      </button>
+      <div class="history-screen__actions">
+        <button type="button" class="btn btn--export" id="export-csv">
+          Экспорт в CSV
+        </button>
+        <button type="button" class="btn btn--back" id="history-close">
+          Вернуться к текущей смене
+        </button>
+      </div>
     </div>
 
     <div class="history-screen__body">

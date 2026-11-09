@@ -24,6 +24,28 @@ const EXPENSE_LABELS = {
 
 const MOSCOW_CENTER = [55.7558, 37.6173];
 
+const MAPBOX_STYLE = "mapbox/streets-v12";
+const MAPBOX_TILE_URL =
+  "https://api.mapbox.com/styles/v1/" +
+  MAPBOX_STYLE +
+  "/tiles/512/{z}/{x}/{y}{r}?access_token={accessToken}";
+const MAPBOX_PROBE_URL =
+  "https://api.mapbox.com/styles/v1/" +
+  MAPBOX_STYLE +
+  "/tiles/512/0/0/0?access_token=";
+const MAPBOX_TOKEN_URL = "static/mapbox-token.json";
+const MAPBOX_TOKEN_TIMEOUT_MS = 2500;
+const MAPBOX_PROBE_TIMEOUT_MS = 4000;
+const MAPBOX_TILE_ERROR_LIMIT = 3;
+
+const OSM_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OSM_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
+const MAPBOX_ATTRIBUTION =
+  '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener">Mapbox</a> ' +
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors ' +
+  '<a href="https://apps.mapbox.com/feedback/" target="_blank" rel="noopener">Improve this map</a>';
+
 const WEATHER_URL =
   "https://api.open-meteo.com/v1/forecast?latitude=55.7558&longitude=37.6173&current=temperature_2m,precipitation,weather_code,wind_speed_10m&timezone=Europe/Moscow";
 const WEATHER_REFRESH_MS = 15 * 60 * 1000;
@@ -116,6 +138,15 @@ const els = {
   amountHint: document.getElementById("amount-hint"),
   keypad: document.getElementById("keypad"),
   moneySubmit: document.getElementById("money-submit"),
+  taxCard: document.getElementById("tax-card"),
+  taxLabel: document.getElementById("tax-label"),
+  taxTotal: document.getElementById("tax-total"),
+  taxSettings: document.getElementById("tax-settings"),
+  taxForm: document.getElementById("tax-form"),
+  taxRateInput: document.getElementById("tax-rate"),
+  taxRateCurrent: document.getElementById("tax-rate-current"),
+  taxSave: document.getElementById("tax-save"),
+  exportCsvButton: document.getElementById("export-csv"),
 };
 
 const emptyShift = () => ({
@@ -129,6 +160,7 @@ const emptyShift = () => ({
 
 const current = {
   shift: emptyShift(),
+  settings: { tax_rate: 6 },
 };
 
 const TRACK_MIN_METERS = 75;
@@ -148,6 +180,15 @@ const geo = {
 
 let map = null;
 let routeLayers = [];
+
+const mapState = {
+  baseLayer: null,
+  mapboxLayer: null,
+  source: "none",
+  fallbackReason: null,
+  tileErrors: 0,
+  tokenConfigured: false,
+};
 const weatherState = {
   loading: false,
   loaded: false,
@@ -176,6 +217,14 @@ const moneyFormatter = new Intl.NumberFormat("ru-RU", {
 function formatMoney(value) {
   const amount = Number(value);
   return moneyFormatter.format(Number.isFinite(amount) ? amount : 0);
+}
+
+const taxRateFormatter = new Intl.NumberFormat("ru-RU", {
+  maximumFractionDigits: 2,
+});
+
+function formatTaxRate(rate) {
+  return `${taxRateFormatter.format(Number(rate) || 0)}%`;
 }
 
 function formatKilometers(meters) {
@@ -921,12 +970,25 @@ function updateMoneyUI() {
     0
   );
   const profit = revenue - expensesTotal;
+  const taxRate = Number(current.settings.tax_rate) || 0;
+  const tax = Math.round(revenue * taxRate) / 100;
 
   if (els.revenue) {
     els.revenue.textContent = formatMoney(revenue);
   }
   if (els.expensesTotal) {
     els.expensesTotal.textContent = formatMoney(expensesTotal);
+  }
+  if (els.taxTotal) {
+    els.taxTotal.textContent = formatMoney(tax);
+  }
+  if (els.taxLabel) {
+    els.taxLabel.textContent = `Налог УСН (${formatTaxRate(taxRate)})`;
+  }
+  if (els.taxCard) {
+    els.taxCard.title =
+      `Налог УСН ${formatTaxRate(taxRate)} от выручки. ` +
+      "Расходы не уменьшают налог.";
   }
   if (els.profit) {
     els.profit.textContent = formatMoney(profit);
@@ -935,6 +997,24 @@ function updateMoneyUI() {
   if (els.shiftStarted) {
     els.shiftStarted.textContent = formatStarted(current.shift.started_at);
   }
+}
+
+function applySettings(settings) {
+  const raw = settings && settings.tax_rate;
+  const rate = Number(raw);
+  const safeRate =
+    Number.isFinite(rate) && rate >= 0 && rate <= 30 ? rate : 6;
+
+  current.settings.tax_rate = safeRate;
+
+  if (els.taxRateInput) {
+    els.taxRateInput.value = String(safeRate);
+  }
+  if (els.taxRateCurrent) {
+    els.taxRateCurrent.textContent = formatTaxRate(safeRate);
+  }
+
+  updateMoneyUI();
 }
 
 function renderShift(shift, options = {}) {
@@ -1325,6 +1405,88 @@ async function submitQuickEntry() {
   }
 }
 
+async function saveTaxSettings(event) {
+  event.preventDefault();
+  if (!els.taxRateInput) return;
+
+  const raw = els.taxRateInput.value.replace(",", ".");
+  const rate = Number(raw);
+
+  if (!Number.isFinite(rate) || rate < 0 || rate > 30) {
+    showToast("Ставка налога должна быть от 0 до 30%", "error");
+    return;
+  }
+
+  if (els.taxSave) {
+    els.taxSave.disabled = true;
+    els.taxSave.textContent = "Сохраняем…";
+  }
+
+  try {
+    const data = await requestJSON("/api/settings", {
+      method: "POST",
+      body: JSON.stringify({ tax_rate: rate }),
+    });
+
+    applySettings(data.settings);
+    if (els.taxSettings) els.taxSettings.open = false;
+    showToast(`Ставка УСН: ${formatTaxRate(current.settings.tax_rate)}`);
+  } catch (error) {
+    showToast(
+      error instanceof Error ? error.message : "Не удалось сохранить ставку",
+      "error"
+    );
+  } finally {
+    if (els.taxSave) {
+      els.taxSave.disabled = false;
+      els.taxSave.textContent = "Сохранить";
+    }
+  }
+}
+
+async function exportHistoryCsv() {
+  if (!els.exportCsvButton) return;
+
+  els.exportCsvButton.disabled = true;
+  els.exportCsvButton.textContent = "Экспортируем…";
+
+  try {
+    const response = await fetch("/api/history/export.csv", {
+      headers: { Accept: "text/csv" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Экспорт не удался (HTTP ${response.status})`);
+    }
+
+    const count = Number(response.headers.get("X-Shift-Count")) || 0;
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `taxi_kyudir_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+
+    if (count > 0) {
+      showToast(`CSV готов: ${count} смен`);
+    } else {
+      showToast("Нет завершённых смен — выгружен пустой файл");
+    }
+  } catch (error) {
+    showToast(
+      error instanceof Error ? error.message : "Не удалось экспортировать CSV",
+      "error"
+    );
+  } finally {
+    els.exportCsvButton.disabled = false;
+    els.exportCsvButton.textContent = "Экспорт в CSV";
+  }
+}
+
 /* --------------------------------------------------------------------------
    История смен
    -------------------------------------------------------------------------- */
@@ -1524,8 +1686,230 @@ function closeHistory() {
    Карта
    -------------------------------------------------------------------------- */
 
+function isPublicMapboxToken(token) {
+  if (typeof token !== "string") return false;
+  return /^pk\.[A-Za-z0-9._-]{20,}$/.test(token.trim());
+}
+
+async function readMapboxToken() {
+  if (typeof window.MAPBOX_ACCESS_TOKEN === "string") {
+    const override = window.MAPBOX_ACCESS_TOKEN.trim();
+    if (override) return override;
+  }
+
+  if (window.MAPBOX_CONFIG && typeof window.MAPBOX_CONFIG.accessToken === "string") {
+    const configured = window.MAPBOX_CONFIG.accessToken.trim();
+    if (configured) return configured;
+  }
+
+  if (typeof fetch !== "function") return null;
+
+  const controller =
+    typeof AbortController === "function" ? new AbortController() : null;
+  const timer = controller
+    ? window.setTimeout(() => controller.abort(), MAPBOX_TOKEN_TIMEOUT_MS)
+    : null;
+
+  try {
+    const response = await fetch(MAPBOX_TOKEN_URL, {
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (!data || typeof data !== "object") return null;
+    const token = data.accessToken || data.token;
+    return typeof token === "string" ? token.trim() : null;
+  } catch {
+    return null;
+  } finally {
+    if (timer !== null) window.clearTimeout(timer);
+  }
+}
+
+function probeMapboxToken(token) {
+  return new Promise((resolve) => {
+    if (typeof window.Image !== "function") {
+      resolve(false);
+      return;
+    }
+
+    let settled = false;
+    const image = new window.Image();
+    const timer = window.setTimeout(() => finish(false), MAPBOX_PROBE_TIMEOUT_MS);
+
+    function finish(ok) {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      image.onload = null;
+      image.onerror = null;
+      resolve(ok);
+    }
+
+    image.onload = () => finish(true);
+    image.onerror = () => finish(false);
+    image.referrerPolicy = "no-referrer";
+    image.src = MAPBOX_PROBE_URL + encodeURIComponent(token);
+  });
+}
+
+function createOsmLayer() {
+  return window.L.tileLayer(OSM_TILE_URL, {
+    maxZoom: 19,
+    attribution: OSM_ATTRIBUTION,
+  });
+}
+
+function createMapboxLayer(token) {
+  const layer = window.L.tileLayer(MAPBOX_TILE_URL, {
+    maxZoom: 19,
+    tileSize: 512,
+    zoomOffset: -1,
+    attribution: MAPBOX_ATTRIBUTION,
+    accessToken: token,
+  });
+
+  layer.on("tileerror", handleMapboxTileError);
+  layer.on("tileload", handleMapboxTileLoad);
+  return layer;
+}
+
+function handleMapboxTileLoad() {
+  if (mapState.source === "mapbox") mapState.tileErrors = 0;
+}
+
+function handleMapboxTileError() {
+  if (mapState.source !== "mapbox") return;
+
+  mapState.tileErrors += 1;
+  if (mapState.tileErrors < MAPBOX_TILE_ERROR_LIMIT) return;
+  fallbackToOsm("tile_error");
+}
+
+function announceMapSource(source, reason) {
+  mapState.fallbackReason = reason || null;
+
+  if (typeof CustomEvent === "function") {
+    document.dispatchEvent(
+      new CustomEvent("taxi:map-source", {
+        detail: { source, reason: reason || null },
+      })
+    );
+  }
+
+  const messages = {
+    token_missing_or_invalid:
+      "Mapbox: публичный токен не найден или неверного формата; используется OpenStreetMap.",
+    mapbox_unreachable:
+      "Mapbox недоступен; используется резервный слой OpenStreetMap.",
+    tile_error:
+      "Mapbox вернул ошибки тайлов; используется резервный слой OpenStreetMap.",
+  };
+  if (reason && messages[reason]) console.warn(messages[reason]);
+}
+
+function publishMapDebug() {
+  window.__taxiMapDebug = {
+    get mapReady() {
+      return map !== null;
+    },
+    get source() {
+      return mapState.source;
+    },
+    get fallbackReason() {
+      return mapState.fallbackReason;
+    },
+    get tokenConfigured() {
+      return mapState.tokenConfigured;
+    },
+    get tileErrors() {
+      return mapState.tileErrors;
+    },
+    get style() {
+      return MAPBOX_STYLE;
+    },
+    get tileSize() {
+      return mapState.mapboxLayer ? mapState.mapboxLayer.options.tileSize : null;
+    },
+    get zoomOffset() {
+      return mapState.mapboxLayer ? mapState.mapboxLayer.options.zoomOffset : null;
+    },
+    get attribution() {
+      const layer = mapState.mapboxLayer || mapState.baseLayer;
+      return layer ? layer.options.attribution : null;
+    },
+    get zoom() {
+      return map ? map.getZoom() : null;
+    },
+    get center() {
+      return map ? map.getCenter() : null;
+    },
+    get size() {
+      return map ? map.getSize() : null;
+    },
+  };
+}
+
+function activateMapbox(token) {
+  if (map === null) return;
+
+  const layer = createMapboxLayer(token);
+  if (mapState.baseLayer) mapState.baseLayer.remove();
+  layer.addTo(map);
+
+  mapState.baseLayer = layer;
+  mapState.mapboxLayer = layer;
+  mapState.source = "mapbox";
+  mapState.tileErrors = 0;
+  announceMapSource("mapbox");
+}
+
+function fallbackToOsm(reason) {
+  if (map === null) return;
+
+  if (mapState.mapboxLayer) {
+    mapState.mapboxLayer.off("tileerror", handleMapboxTileError);
+    mapState.mapboxLayer.off("tileload", handleMapboxTileLoad);
+    mapState.mapboxLayer.remove();
+    mapState.mapboxLayer = null;
+  }
+
+  if (mapState.source !== "osm" || mapState.baseLayer === null) {
+    mapState.baseLayer = createOsmLayer().addTo(map);
+    mapState.source = "osm";
+  }
+
+  mapState.tileErrors = 0;
+  announceMapSource("osm", reason);
+  showToast("Mapbox недоступен — карта переключена на OpenStreetMap");
+}
+
+async function upgradeToMapbox() {
+  const token = await readMapboxToken();
+  mapState.tokenConfigured = isPublicMapboxToken(token);
+
+  if (!mapState.tokenConfigured) {
+    announceMapSource("osm", "token_missing_or_invalid");
+    return;
+  }
+
+  const reachable = await probeMapboxToken(token);
+  if (map === null) return;
+
+  if (!reachable) {
+    announceMapSource("osm", "mapbox_unreachable");
+    return;
+  }
+
+  activateMapbox(token);
+}
+
 function initMap() {
   if (!els.map) return;
+  publishMapDebug();
 
   if (typeof window.L === "undefined") {
     els.map.innerHTML =
@@ -1546,11 +1930,10 @@ function initMap() {
     scrollWheelZoom: true,
   });
 
-  window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
-  }).addTo(map);
+  mapState.baseLayer = createOsmLayer().addTo(map);
+  mapState.source = "osm";
+  announceMapSource("osm", "initial");
+  void upgradeToMapbox();
 
   let resizeTimer = null;
   window.addEventListener("resize", () => {
@@ -1677,6 +2060,14 @@ function bindEvents() {
     els.historyClose.addEventListener("click", closeHistory);
   }
 
+  if (els.exportCsvButton) {
+    els.exportCsvButton.addEventListener("click", exportHistoryCsv);
+  }
+
+  if (els.taxForm) {
+    els.taxForm.addEventListener("submit", saveTaxSettings);
+  }
+
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
 
@@ -1727,6 +2118,7 @@ function bindEvents() {
 async function loadState() {
   try {
     const state = await requestJSON("/api/state");
+    applySettings(state.settings);
     applyCar(state);
     applyStatus(state.status);
     renderShift(state.shift, { fitToRoute: true });
