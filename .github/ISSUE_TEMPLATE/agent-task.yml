@@ -11,7 +11,10 @@ body:
         - CLAIM — это заявка, а не блокировка. Работу начинают только после `ASSIGN` от координатора.
         - Комментарии общего аккаунта не подтверждают личность владельца. Owner Approval действует только процедурно; auto-merge и автоматический deploy запрещены.
         - Поля Task ID, Base SHA, Depends on, Allowed/Forbidden paths, Acceptance criteria и Owner gates образуют каноническую спецификацию (PROTOCOL §4.2). На G0 владелец утверждает её `issue_spec_sha256`. Любая правка этих полей после G0 переводит задачу в BLOCKED до нового G0.
-        - Форма работает только из ветки по умолчанию (`main`). Порядок активации — PROTOCOL §12.
+        - Форма активна в `main` с 2026-11-09 (PR #3).
+        - Пилотные Issues запрещены, пока не выполнены все условия операционной готовности PROTOCOL §13. Issue, созданный в обход запрета, блокируется (§13.1).
+        - Отметки в форме — это требования к задаче, а не решения. Решение владельца — только отдельный комментарий `OWNER-DECISION`.
+        - Целевая ветка задачи фиксируется в решении владельца на G0 (PROTOCOL §4.3), а не в этой форме.
   - type: input
     id: task_id
     attributes:
@@ -50,8 +53,8 @@ body:
     id: base_sha
     attributes:
       label: Base SHA
-      description: Полный git SHA из 40 hex-символов
-      placeholder: 8dc3402f84eb817266360fa83f66f01766ef4bc4
+      description: "Полный SHA (40 hex) утверждённого базового commit задачи. Не копируйте SHA из примеров или исторических таблиц. Правила выбора — PROTOCOL §4.3."
+      placeholder: "40 hex — полный SHA базового commit"
     validations:
       required: true
   - type: textarea
@@ -93,9 +96,10 @@ body:
     id: gates
     attributes:
       label: Owner gates required
-      description: Входит в каноническую спецификацию. G0 обязателен перед ASSIGN любой задачи (PROTOCOL §4.2, §9).
+      description: "Входит в каноническую спецификацию. G0-intake обязателен для любой задачи. Отметка означает только, что гейт требуется. Это НЕ решение владельца: утверждение G0 — отдельный комментарий OWNER-DECISION с approved_spec_sha256 (PROTOCOL §5.6). Без него ASSIGN не выдаётся."
       options:
         - label: G0-intake
+          required: true
         - label: G1-design
         - label: G2-merge
         - label: G3-deploy
@@ -125,4 +129,6 @@ body:
         - label: Задача не затрагивает production, работающие сервисы, секреты, Mapbox-токены и production JSON/SQLite
           required: true
         - label: Задача не требует auto-merge, автоматического deploy или GitHub Actions
+          required: true
+        - label: Все условия операционной готовности PROTOCOL §13 выполнены; Issue не создаётся в обход запрета пилотных Issues (§13.1)
           required: true
