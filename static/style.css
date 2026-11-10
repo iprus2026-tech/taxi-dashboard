@@ -3840,6 +3840,23 @@ body.driving-mode #map {
     padding: var(--space-4);
   }
 
+  /* «Чистая прибыль» на телефоне — ниже даты и автомобиля (G1 history-390):
+     шапка карточки в колонку, плашка на всю ширину, подпись слева, сумма справа. */
+  .shift-card__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .shift-card__profit {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+    margin-left: 0;
+  }
+
   .shift-card__metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
