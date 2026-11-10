@@ -2375,3 +2375,1520 @@ body.driving-mode .toast {
     font-size: 18px;
   }
 }
+
+
+/* ==========================================================================
+   TAXI-UI-STYLE-01.2 — слой «Ночная смена»
+   Реализация утверждённой на G1 спецификации TAXI-UI-STYLE-01.1
+   (TAXI-UI-STYLE-01.1-SPEC.md, sha256 0b940608…3a1d2).
+
+   Слой дописан в конец файла (SPEC §8.1–8.2): базовые правила выше
+   не удалялись, поэтому при равной специфичности побеждают правила слоя.
+   Используются только существующие классы, id, атрибуты и состояния
+   разметки Base SHA и классы Leaflet. HTML и JS не изменяются.
+   ========================================================================== */
+
+/* 1. Токены (SPEC §2). Имена базовых токенов сохранены, меняются значения. */
+
+:root {
+  /* Поверхности */
+  --bg: #0a0e13;
+  --bg-glow: #0a0e13;
+  --surface: #121821;
+  --surface-2: #18202b;
+  --surface-3: #212b38;
+  --surface-sunken: #0d1218;
+  --overlay: rgba(5, 8, 12, 0.78);
+  --bar-bg: rgba(10, 14, 19, 0.94);
+  --border: #263241;
+  --border-strong: #3a4859;
+  --border-input: #5f6e80;
+
+  /* Текст */
+  --text: #eef3f8;
+  --text-muted: #a9b6c4;
+  --text-dim: #8b99aa;
+
+  /* Акцент и сигналы */
+  --accent: #5b9bff;
+  --accent-strong: #2f6fe4;
+  --accent-hover: #2563d9;
+  --accent-soft: rgba(91, 155, 255, 0.16);
+  --on-accent: #ffffff;
+
+  --green: #3ddc84;
+  --green-strong: #2bb56a;
+  --green-soft: rgba(61, 220, 132, 0.14);
+  --yellow: #f5b83d;
+  --yellow-strong: #d99a1e;
+  --yellow-soft: rgba(245, 184, 61, 0.14);
+  --gray: #8f9cad;
+  --gray-strong: #6f7d8f;
+  --danger: #ff7b6e;
+  --danger-strong: #e5484d;
+  --danger-soft: rgba(255, 123, 110, 0.14);
+  --on-signal: #06110b;
+
+  /* Радиусы */
+  --radius-xs: 8px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  /* Отступы, шаг 4 px */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Тени и фокус */
+  --shadow-soft: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 4px 14px rgba(0, 0, 0, 0.28);
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-bar: 0 -12px 28px rgba(0, 0, 0, 0.4);
+  --focus-ring: 0 0 0 3px var(--bg), 0 0 0 5px var(--accent);
+
+  /* Размеры касания */
+  --tap-min: 48px;
+  --tap-md: 56px;
+  --tap-lg: 64px;
+
+  /* Типографика (SPEC §3) */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-base: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+  --fs-3xl: 36px;
+  --fs-4xl: 44px;
+  --lh-base: 1.5;
+  --lh-tight: 1.15;
+
+  /* Отступы раскладки: телефон / планшет / десктоп (SPEC §2.5) */
+  --page-pad: 20px;
+  --page-gap: 20px;
+  --card-pad: 24px;
+  --block-pad: 20px;
+  --tile-gap: 12px;
+}
+
+html {
+  /* Фокус и прокрутка к элементу не прячутся под шапкой и панелью статуса */
+  scroll-padding-top: 104px;
+  scroll-padding-bottom: 168px;
+}
+
+body {
+  background: var(--bg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+}
+
+/* 2. Шапка */
+
+.topbar {
+  background: var(--bar-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand__logo {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.brand__subtitle {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.weather {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.weather__desc {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.weather__wind {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.weather.is-alert {
+  border-color: var(--yellow);
+  background: var(--yellow-soft);
+  box-shadow: none;
+}
+
+.weather.is-alert .weather__desc {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.weather.is-alert .weather__wind {
+  color: var(--text-muted);
+}
+
+.history-toggle {
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 650;
+}
+
+.history-toggle:hover {
+  border-color: var(--text-dim);
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.status-chip {
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.status-chip__dot {
+  width: 12px;
+  height: 12px;
+  background: var(--gray);
+  box-shadow: none;
+}
+
+.status-chip[data-status="free"] {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.status-chip[data-status="free"] .status-chip__dot {
+  background: var(--green);
+  box-shadow: none;
+}
+
+.status-chip[data-status="busy"] {
+  border-color: var(--yellow);
+  background: var(--yellow-soft);
+  color: var(--yellow);
+}
+
+.status-chip[data-status="busy"] .status-chip__dot {
+  background: var(--yellow);
+  box-shadow: none;
+}
+
+.status-chip[data-status="offline"] {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.status-chip[data-status="offline"] .status-chip__dot {
+  background: var(--gray);
+  box-shadow: none;
+}
+
+/* 3. Страница и карточки (SPEC §5.2) */
+
+.page {
+  gap: var(--page-gap);
+  /* Без нижнего поля: закреплённая панель статуса в конце прокрутки прилегает к краю экрана */
+  padding: var(--page-pad) var(--page-pad) 0;
+}
+
+.card {
+  padding: var(--card-pad);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.card__title {
+  font-size: var(--fs-lg);
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+.card__hint {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* Лейблы полей и плиток: 12 px / 650 / UPPERCASE / .06em */
+
+.field__label,
+.mileage__label,
+.money__label,
+.shift-card__metric-label,
+.shift-card__profit-label,
+.tax-settings__label,
+.money-form__label {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* 4. Поля (SPEC §5.4) */
+
+.field__input {
+  min-height: var(--tap-md);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: var(--fs-lg);
+}
+
+.field__input::placeholder {
+  color: var(--text-dim);
+}
+
+.field__input:hover {
+  border-color: var(--text-dim);
+}
+
+.field__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.field__input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+/* 5. Кнопки: вариант × размер (SPEC §5.1) */
+
+.btn {
+  min-height: var(--tap-md);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+}
+
+/* Primary */
+.btn--save,
+.btn--track,
+.btn--export {
+  border-color: transparent;
+  background: var(--accent-strong);
+  box-shadow: none;
+  color: var(--on-accent);
+}
+
+.btn--save:hover:not(:disabled),
+.btn--track:hover:not(:disabled),
+.btn--export:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+/* Success */
+.btn--order {
+  border-color: transparent;
+  background: var(--green);
+  color: var(--on-signal);
+}
+
+.btn--order:hover:not(:disabled) {
+  border-color: transparent;
+  background: #5ae69a;
+  color: var(--on-signal);
+}
+
+/* Danger tonal: «+ Расход» и «Остановить отслеживание» */
+.btn--expense,
+.btn--track.is-active {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  box-shadow: none;
+  color: var(--danger);
+}
+
+.btn--expense:hover:not(:disabled),
+.btn--track.is-active:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: rgba(255, 123, 110, 0.22);
+  color: var(--danger);
+}
+
+/* Neutral */
+.btn--reset,
+.btn--ghost,
+.btn--back {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.btn--reset:hover:not(:disabled),
+.btn--ghost:hover:not(:disabled),
+.btn--back:hover:not(:disabled) {
+  border-color: var(--text-dim);
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* Danger outline */
+.btn--finish {
+  width: 100%;
+  border-color: var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+
+.btn--finish:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* Размер lg — 64 px */
+.money__actions .btn {
+  min-height: var(--tap-lg);
+  font-size: var(--fs-xl);
+}
+
+/* 6. Карта (SPEC §5.5) */
+
+.card--map {
+  padding-bottom: var(--card-pad);
+}
+
+.map-wrap {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  /* Слои Leaflet (z-index до 1000) не выходят поверх шапки и панели статуса */
+  isolation: isolate;
+}
+
+body:not(.driving-mode) #map {
+  height: clamp(300px, 46vh, 460px);
+}
+
+#map,
+.leaflet-container {
+  background: var(--surface-sunken);
+}
+
+/* Ночные тайлы: фильтр действует только на растровые тайлы */
+.leaflet-tile {
+  filter: invert(0.92) hue-rotate(180deg) saturate(0.55) brightness(0.95) contrast(0.92);
+}
+
+/* Трек GPS (вектор, цвет из script.js) — белая обводка; круг точности имеет fill и не выбирается */
+.leaflet-container path[stroke="#3b82f6"][fill="none"] {
+  filter: drop-shadow(0 0 1px #ffffff) drop-shadow(0 0 1px #ffffff);
+}
+
+.leaflet-container a {
+  color: #9cc2ff;
+}
+
+.leaflet-control-attribution {
+  padding: 2px 8px !important;
+  border-top-left-radius: var(--radius-xs);
+  background: rgba(10, 14, 19, 0.9) !important;
+  color: var(--text-muted) !important;
+  font-size: 11px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #9cc2ff !important;
+}
+
+.leaflet-bar {
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--radius-sm) !important;
+  overflow: hidden;
+  box-shadow: var(--shadow) !important;
+}
+
+.leaflet-bar a {
+  width: 44px !important;
+  height: 44px !important;
+  background: var(--bar-bg) !important;
+  color: var(--text) !important;
+  border-bottom-color: var(--border-strong) !important;
+  font-size: 20px !important;
+  line-height: 44px !important;
+}
+
+.leaflet-bar a:hover {
+  background: var(--surface-3) !important;
+}
+
+.leaflet-bar a:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* «Режим за рулём» — map overlay */
+.drive-toggle {
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--accent-strong);
+  box-shadow: var(--shadow);
+  color: var(--on-accent);
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.drive-toggle:hover {
+  border-color: var(--accent);
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+/* 7. Пробег и деньги — вложенные блоки (SPEC §5.2) */
+
+.mileage,
+.money {
+  margin-top: var(--space-4);
+  padding: var(--block-pad);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.money {
+  border-top: 1px solid var(--border);
+}
+
+.mileage__title,
+.money__title {
+  font-size: var(--fs-lg);
+  font-weight: 750;
+}
+
+.mileage__hint,
+.money__hint,
+.geo-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.shift-started {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.mileage__stats,
+.money__grid {
+  gap: var(--tile-gap);
+}
+
+.mileage__stat,
+.money__stat {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.mileage__value {
+  color: var(--text);
+  font-size: var(--fs-2xl);
+  font-weight: 800;
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.mileage__value--small {
+  color: var(--text);
+  font-size: var(--fs-xl);
+  font-weight: 750;
+}
+
+.money__value {
+  color: var(--text);
+  font-size: var(--fs-xl);
+  font-weight: 750;
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.money__value--expense {
+  color: var(--danger);
+}
+
+.money__stat--tax {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.money__value--tax {
+  color: var(--yellow);
+}
+
+.money__profit {
+  border: 1px solid var(--green);
+  border-radius: var(--radius-sm);
+  background: var(--green-soft);
+}
+
+.money__profit .money__label {
+  color: var(--text);
+}
+
+.money__profit-value {
+  color: var(--green);
+  font-size: var(--fs-3xl);
+  font-weight: 800;
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.money__profit-value.is-negative {
+  color: var(--danger);
+}
+
+/* GPS-статус и подсказки */
+
+.geo-status {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.geo-status.is-active {
+  color: var(--green);
+  font-weight: 650;
+}
+
+.geo-status.is-error {
+  color: var(--danger);
+  font-weight: 650;
+}
+
+.geo-alert {
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--text);
+}
+
+/* <details>: «Как включить геолокацию», «Ставка УСН» (SPEC §5.4) */
+
+.geo-help,
+.tax-settings {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.geo-help__summary,
+.tax-settings__summary {
+  min-height: var(--tap-min);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.geo-help__summary::before,
+.tax-settings__summary::before {
+  color: var(--accent);
+}
+
+.tax-settings__summary strong {
+  color: var(--yellow);
+}
+
+.geo-help__body {
+  color: var(--text-muted);
+}
+
+.geo-help__warning {
+  border: 1px solid var(--yellow);
+  border-radius: var(--radius-xs);
+  background: var(--yellow-soft);
+  color: var(--text);
+}
+
+.tax-settings__hint {
+  color: var(--text-dim);
+}
+
+.tax-settings__input,
+.tax-settings__row .btn {
+  min-height: var(--tap-min);
+}
+
+/* Формы заказа и расхода */
+
+.money-form {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.money-form__input,
+.money-form__select,
+.money-form__row .btn {
+  min-height: var(--tap-md);
+}
+
+/* Завершение смены */
+
+.shift-footer__hint {
+  color: var(--text-dim);
+}
+
+/* 8. Статус (SPEC §5.3) */
+
+body:not(.driving-mode) .status-card {
+  position: sticky;
+  bottom: 0;
+  z-index: 1100;
+  padding: var(--space-4) var(--card-pad) calc(var(--space-4) + env(safe-area-inset-bottom));
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--bar-bg);
+  box-shadow: var(--shadow-bar);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.status-grid {
+  gap: var(--space-3);
+}
+
+.status-btn {
+  min-height: var(--tap-lg);
+  padding: var(--space-3) var(--space-3);
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: none;
+  font-size: var(--fs-lg);
+  font-weight: 750;
+}
+
+.status-btn__dot {
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  box-shadow: none;
+}
+
+.status-btn--free {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--green);
+}
+
+.status-btn--busy {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--yellow);
+}
+
+.status-btn--offline {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.status-btn--free:hover:not(:disabled) {
+  border-color: var(--green);
+  background: var(--surface-3);
+}
+
+.status-btn--busy:hover:not(:disabled) {
+  border-color: var(--yellow);
+  background: var(--surface-3);
+}
+
+.status-btn--offline:hover:not(:disabled) {
+  border-color: var(--gray);
+  background: var(--surface-3);
+}
+
+/* Выбранная: сплошная заливка цветом статуса, тёмный текст, ореол 4 px */
+.status-btn--free[aria-pressed="true"] {
+  border-color: var(--green);
+  background: var(--green);
+  box-shadow: 0 0 0 4px var(--green-soft);
+  color: var(--on-signal);
+}
+
+.status-btn--busy[aria-pressed="true"] {
+  border-color: var(--yellow);
+  background: var(--yellow);
+  box-shadow: 0 0 0 4px var(--yellow-soft);
+  color: var(--on-signal);
+}
+
+.status-btn--offline[aria-pressed="true"] {
+  border-color: var(--gray);
+  background: var(--gray);
+  box-shadow: 0 0 0 4px rgba(143, 156, 173, 0.18);
+  color: var(--on-signal);
+}
+
+.status-btn--free[aria-pressed="true"] .status-btn__dot,
+.status-btn--busy[aria-pressed="true"] .status-btn__dot,
+.status-btn--offline[aria-pressed="true"] .status-btn__dot {
+  background: var(--on-signal);
+  box-shadow: none;
+}
+
+.status-btn:focus-visible,
+.status-btn[aria-pressed="true"]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* 9. Режим за рулём (SPEC §5.6). Механика базы сохранена. */
+
+body.driving-mode .status-card {
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--bar-bg);
+  box-shadow: var(--shadow-bar);
+}
+
+body.driving-mode .status-btn {
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 96px;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-xl);
+}
+
+body.driving-mode .status-btn__dot {
+  width: 16px;
+  height: 16px;
+}
+
+.drive-topbar__label,
+.drive-exit {
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bar-bg);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.drive-exit:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.fab {
+  width: 80px;
+  height: 80px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-xl);
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.fab--order {
+  border-color: var(--green);
+  background: var(--green);
+  box-shadow: var(--shadow);
+  color: var(--on-signal);
+}
+
+.fab--order:hover {
+  filter: none;
+  background: #5ae69a;
+}
+
+.fab--expense {
+  border-color: var(--danger);
+  background: #1c1214;
+  box-shadow: var(--shadow);
+  color: var(--danger);
+}
+
+.fab--expense:hover {
+  filter: none;
+  background: #2a1715;
+}
+
+.fab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Ловушки каскада (SPEC §8.3) */
+body.driving-mode .card--map {
+  display: block;
+}
+
+body.driving-mode .map-wrap {
+  position: absolute;
+  inset: 0;
+  top: 0;
+  align-self: stretch;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+body.driving-mode #map {
+  height: 100%;
+}
+
+/* 10. Быстрый ввод (SPEC §5.7) */
+
+.money-modal {
+  background: var(--overlay);
+}
+
+.money-modal__dialog {
+  width: min(460px, 100%);
+  padding: var(--space-6);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.money-modal__title {
+  font-size: var(--fs-xl);
+  font-weight: 750;
+}
+
+.money-modal__subtitle {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.money-modal__close {
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.money-modal__close:hover {
+  border-color: var(--text-dim);
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.category-chip {
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 650;
+}
+
+.category-chip:hover {
+  border-color: var(--text-dim);
+  background: var(--surface-3);
+}
+
+.category-chip[aria-pressed="true"] {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--on-accent);
+}
+
+.amount-display {
+  min-height: 80px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: var(--fs-4xl);
+  font-weight: 800;
+  line-height: var(--lh-tight);
+}
+
+.amount-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.keypad__key {
+  min-height: var(--tap-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 24px;
+}
+
+.keypad__key:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+
+.keypad__key:active {
+  background: var(--surface-3);
+}
+
+.keypad__key--util {
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.keypad__ok {
+  min-height: var(--tap-lg);
+  border: 1px solid var(--green);
+  border-radius: var(--radius-md);
+  background: var(--green);
+  color: var(--on-signal);
+  font-size: var(--fs-xl);
+  font-weight: 800;
+}
+
+.keypad__ok:hover:not(:disabled) {
+  background: #5ae69a;
+}
+
+.keypad__ok:disabled {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+/* 11. История смен (SPEC §5.8) */
+
+.history-screen {
+  background: var(--bg);
+}
+
+.history-screen__top {
+  padding: var(--space-4) max(24px, calc((100vw - 1240px) / 2));
+  border-bottom: 1px solid var(--border);
+  background: var(--bar-bg);
+}
+
+.history-screen__title {
+  font-size: var(--fs-2xl);
+  font-weight: 800;
+}
+
+.history-screen__subtitle {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.history-screen__body {
+  padding: var(--space-6) max(24px, calc((100vw - 1240px) / 2)) var(--space-10);
+}
+
+.history-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr));
+  align-items: start;
+  gap: var(--space-4);
+  max-width: none;
+}
+
+.history-status {
+  color: var(--text-muted);
+}
+
+.shift-card {
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.shift-card__date {
+  font-size: var(--fs-lg);
+  font-weight: 750;
+}
+
+.shift-card__times {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.shift-card__car {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+.shift-card__profit {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--green);
+  border-radius: var(--radius-sm);
+  background: var(--green-soft);
+}
+
+.shift-card__profit:has(.is-negative) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.shift-card__profit-label {
+  color: var(--text);
+}
+
+.shift-card__profit-value {
+  color: var(--green);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: var(--lh-tight);
+}
+
+.shift-card__profit-value.is-negative {
+  color: var(--danger);
+}
+
+.shift-card__metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.shift-card__metric {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.shift-card__metric-value {
+  font-size: var(--fs-base);
+  font-weight: 750;
+}
+
+.shift-card__details {
+  border-top: 1px dashed var(--border);
+}
+
+.shift-card__summary {
+  min-height: var(--tap-min);
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+
+.shift-card__summary::before {
+  color: var(--accent);
+}
+
+.operation {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: var(--fs-md);
+}
+
+.operation__time {
+  color: var(--text-dim);
+}
+
+.operation--order .operation__amount {
+  color: var(--green);
+}
+
+.operation--expense .operation__amount {
+  color: var(--danger);
+}
+
+/* 12. Toast (SPEC §5.9) */
+
+.toast {
+  z-index: 2150;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+
+.toast[data-kind="error"] {
+  border-color: var(--danger);
+  background: #2a1715;
+  color: #ffd2cc;
+}
+
+/* 13. Адаптивная компоновка (SPEC §6). Блоки стоят ниже базовых @media. */
+
+/* ≥ 1100 px — десктоп 1280 */
+@media (min-width: 1100px) {
+  :root {
+    --page-pad: 24px;
+  }
+
+  .topbar__inner,
+  .page {
+    max-width: 1240px;
+  }
+
+  html {
+    scroll-padding-bottom: 128px;
+  }
+
+  body:not(.driving-mode) .card--map {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(380px, 1fr);
+    grid-template-rows: auto auto auto auto 1fr;
+    column-gap: var(--space-6);
+    align-items: start;
+  }
+
+  body:not(.driving-mode) .card--map > .card__title {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  body:not(.driving-mode) .card--map > .card__hint {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  body:not(.driving-mode) .card--map > .map-wrap {
+    position: sticky;
+    top: 92px;
+    grid-column: 1;
+    grid-row: 3 / span 3;
+    margin-top: 0;
+  }
+
+  body:not(.driving-mode) .card--map > .mileage {
+    grid-column: 2;
+    grid-row: 3;
+    margin-top: 0;
+  }
+
+  body:not(.driving-mode) .card--map > .money {
+    grid-column: 2;
+    grid-row: 4;
+  }
+
+  body:not(.driving-mode) .card--map > .shift-footer {
+    grid-column: 2;
+    grid-row: 5;
+  }
+
+  body:not(.driving-mode) #map {
+    height: clamp(420px, calc(100vh - 290px), 640px);
+  }
+
+  body:not(.driving-mode) .status-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: var(--space-6);
+  }
+
+  body:not(.driving-mode) .status-card > .card__title {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: end;
+  }
+
+  body:not(.driving-mode) .status-card > .card__hint {
+    grid-column: 1;
+    grid-row: 2;
+    align-self: start;
+    margin: var(--space-1) 0 0;
+  }
+
+  body:not(.driving-mode) .status-card > .status-grid {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+
+/* 641–1099 px — планшет 800 */
+@media (max-width: 1099px) {
+  body:not(.driving-mode) .status-card > .card__hint {
+    display: none;
+  }
+
+  body:not(.driving-mode) .status-card > .card__title {
+    margin-bottom: var(--space-3);
+  }
+}
+
+/* ≤ 860 px — дополнения к базовому брейкпоинту */
+@media (max-width: 860px) {
+  html {
+    scroll-padding-top: 144px;
+  }
+
+  .shift-card__metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ≤ 640 px — телефон 390 */
+@media (max-width: 640px) {
+  :root {
+    --page-pad: 16px;
+    --page-gap: 16px;
+    --card-pad: 16px;
+    --block-pad: 12px;
+    --tile-gap: 8px;
+  }
+
+  html {
+    scroll-padding-bottom: 120px;
+  }
+
+  .page {
+    padding: var(--page-pad) var(--page-pad) 0;
+  }
+
+  .card {
+    border-radius: var(--radius-md);
+  }
+
+  .card--map {
+    padding: var(--space-3);
+  }
+
+  body:not(.driving-mode) #map {
+    height: 300px;
+  }
+
+  .history-toggle,
+  .status-chip {
+    min-height: 44px;
+  }
+
+  .btn {
+    padding: 0 var(--space-4);
+    font-size: 17px;
+  }
+
+  /* Пробег: три плитки в ряд 1.35 : 1 : 0.7 */
+  .mileage__stats {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.7fr);
+  }
+
+  .mileage__stat {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .mileage__stat:first-child {
+    grid-column: auto;
+  }
+
+  .mileage__label {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+
+  .mileage__value {
+    font-size: var(--fs-xl);
+  }
+
+  .mileage__value--small {
+    font-size: var(--fs-lg);
+  }
+
+  /* Деньги: «+ Заказ» / «+ Расход» — две колонки по 64 px */
+  .money__actions {
+    flex-direction: row;
+  }
+
+  .money__actions .btn {
+    width: auto;
+    flex: 1 1 0;
+    font-size: var(--fs-lg);
+  }
+
+  .money__profit-value {
+    font-size: var(--fs-2xl);
+  }
+
+  /* Панель статуса: заголовок скрыт визуально, кнопки 64 px, точка над подписью */
+  body:not(.driving-mode) .status-card {
+    padding: var(--space-3) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom));
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  body:not(.driving-mode) .status-card > .card__title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .status-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .status-btn {
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    min-height: var(--tap-lg);
+    padding: var(--space-2) var(--space-1);
+    font-size: 15px;
+  }
+
+  .status-btn__dot {
+    width: 12px;
+    height: 12px;
+  }
+
+  body.driving-mode .status-btn {
+    min-height: 84px;
+    font-size: var(--fs-base);
+  }
+
+  body.driving-mode .status-btn__dot {
+    width: 14px;
+    height: 14px;
+  }
+
+  .fab {
+    width: 72px;
+    height: 72px;
+    font-size: 26px;
+  }
+
+  /* Быстрый ввод — нижний лист */
+  .money-modal {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .money-modal__dialog {
+    width: 100%;
+    max-height: calc(100dvh - 24px);
+    padding: var(--space-4) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom));
+    border-bottom: 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .amount-display {
+    font-size: 40px;
+  }
+
+  /* История: одна колонка, метрики 2 × 2 */
+  .history-screen__top {
+    padding: var(--space-4);
+  }
+
+  .history-screen__body {
+    padding: var(--space-4) var(--space-4) var(--space-10);
+  }
+
+  .history-screen__title {
+    font-size: var(--fs-xl);
+  }
+
+  .shift-card {
+    padding: var(--space-4);
+  }
+
+  .shift-card__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Компактный быстрый ввод на низких экранах — повторяет базовое правило max-height: 700px
+   поверх размеров слоя, чтобы клавиатура помещалась без прокрутки. */
+@media (max-height: 700px) {
+  .money-modal__dialog {
+    padding: var(--space-3) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom));
+  }
+
+  .money-modal__title {
+    font-size: 17px;
+  }
+
+  .category-chip {
+    min-height: 40px;
+    padding: 0 var(--space-3);
+    font-size: var(--fs-sm);
+  }
+
+  .amount-display {
+    min-height: 54px;
+    margin-top: var(--space-2);
+    font-size: 32px;
+  }
+
+  .keypad__key,
+  .keypad__ok {
+    min-height: 54px;
+  }
+
+  .keypad__key {
+    font-size: 20px;
+  }
+
+  .keypad__ok {
+    font-size: var(--fs-lg);
+  }
+}
+
+/* Уменьшение движения: слой не добавляет анимаций; базовое правило
+   prefers-reduced-motion выше продолжает действовать. Дополнительно
+   отключается blur, который на слабых устройствах дорог при прокрутке. */
+@media (prefers-reduced-motion: reduce) {
+  body:not(.driving-mode) .status-card,
+  .topbar {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
