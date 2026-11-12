@@ -1,0 +1,23 @@
+TAXI-ISSUE-SPEC/2
+task_id: TAXI-PROTOCOL-EXAMPLE-01
+depends_on:
+- none
+work_profile: READ_ONLY_EVIDENCE_QA/1
+task_role: EVIDENCE_REVIEWER
+base_sha: 48b0454d3b68f90e7687bd00b2ccc5a9318f6d70
+target_branch: main
+source_ref: refs/heads/main
+source_sha: 48b0454d3b68f90e7687bd00b2ccc5a9318f6d70
+branch_policy: FORBIDDEN
+evidence_policy: ISSUE_TEXT_LF/1
+allowed_actions:
+- issue_comment:create
+- repo:read
+allowed_paths:
+- none
+forbidden_paths:
+- **/*
+acceptance:
+- AC-1: Example only.
+gates:
+- G0-intake
