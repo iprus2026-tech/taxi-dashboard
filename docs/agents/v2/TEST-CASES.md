@@ -65,26 +65,26 @@
 | `ser-04-extra-blank-line.txt` | лишний LF в конце (пустая строка) | 758 | `CANONICALIZATION_ERROR` |
 | `ser-05-swapped-key-order.txt` | строки `claim_ref` и `previous_assign_ref` переставлены | 757 | `SCHEMA_INVALID` (порядок ключей; длина та же, хэш другой) |
 | `ser-06-missing-field.txt` | удалена строка `refs_snapshot_sha256` | 670 | `SCHEMA_INVALID` |
-| `ser-07-unknown-extra-field.txt` | добавлена `note: extra` перед `lease_until` | 769 | `SCHEMA_INVALID` |
+| `ser-07-extra-field.txt` | добавлена `note: extra` перед `lease_until` | 769 | `SCHEMA_INVALID` |
 | `ser-08-duplicate-key.txt` | строка `session` повторена | 786 | `SCHEMA_INVALID` |
 | `ser-09-missing-title-line.txt` | удалена первая строка `agent-msg` | 747 | `SCHEMA_INVALID` |
 | `ser-10-uppercase-hex.txt` | `issue_spec_sha256` в верхнем регистре | 757 | `SCHEMA_INVALID` |
 | `ser-11-trailing-space.txt` | пробел в конце строки `task` | 758 | `CANONICALIZATION_ERROR` |
 | `ser-12-tab-separator.txt` | после `task:` табуляция вместо пробела | 757 | `CANONICALIZATION_ERROR` |
-| `ser-13-ts-second-precision.txt` | `ts: 2026-11-12T15:00:00Z` (без `.sss`) | 753 | `SCHEMA_INVALID` (поля времени v2 требуют `.sssZ`) |
+| `ser-13-ts-seconds.txt` | `ts: 2026-11-12T15:00:00Z` (без `.sss`) | 753 | `SCHEMA_INVALID` (поля времени v2 требуют `.sssZ`) |
 
 ### 3.2 Смысловые (`sem-*`, синтаксис формально похож на верный)
 
 | Файл | Мутация | Ожидание |
 |---|---|---|
 | `sem-01-unbound-session.txt` | `session: synth-attacker-9999`; `claim_ref` и G0 прежние | `AUTH_ATTESTATION_UNVERIFIED`: сессия не совпадает с `new_session` G0 и с CLAIM/2. Координатор отвергает до публикации, токена нет (N1 эррата) |
-| `sem-02-mixed-artifact-triple.txt` | `last_artifact_ref: 12345673`, остальные два поля `none` | `SCHEMA_INVALID` (смешанная тройка, N2 эррата) |
+| `sem-02-mixed-triple.txt` | `last_artifact_ref: 12345673`, остальные два поля `none` | `SCHEMA_INVALID` (смешанная тройка, N2 эррата) |
 | `sem-03-lease-24h-erratum.txt` | `lease_until` = `ts + 24 ч` (вариант эррата, SHA-256 `515c1d2d…3491`) | `SCHEMA_INVALID`: нарушена политика PT12H |
 | `sem-04-lease-not-after-ts.txt` | `lease_until` = `ts` | `SCHEMA_INVALID` |
 | `sem-05-branch-not-none.txt` | `branch: agent/deepseek-qa/taxi-protocol-example-01` | `SCHEMA_INVALID`; при попытке создать ref — `SCOPE_VIOLATION` |
 | `sem-06-self-resume-agent.txt` | `agent: deepseek-qa` (возобновление самим агентом) | `SCHEMA_INVALID`: `agent` должен быть `gpt`, самостоятельный RESUME запрещён |
 | `sem-07-v1-crossover.txt` | `v: 1` | `SCHEMA_INVALID`: v1 и v2 не смешиваются |
-| `sem-08-coordinator-equals-session.txt` | `coordinator_session` = `session` | `SCHEMA_INVALID` |
+| `sem-08-coord-eq-session.txt` | `coordinator_session` = `session` | `SCHEMA_INVALID` |
 | `sem-09-incorrect-base.txt` | см. NEG-18 | `UNAPPROVED_BASE` |
 | `sem-10-wrong-spec-digest.txt` | см. NEG-17 | `UNAPPROVED_BASE` |
 | `sem-11-stale-assign-ref.txt` | см. NEG-07 | `ASSIGN_FENCE_STALE` |
