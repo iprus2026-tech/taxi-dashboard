@@ -6,6 +6,8 @@
 - Base SHA: `48b0454d3b68f90e7687bd00b2ccc5a9318f6d70`
 - Автор: `claude-code`, сессия `claude-code-session_01UHQjyd5XEFZ66Ye4Xg8CG3`, [ASSIGN #6831703608](https://github.com/iprus2026-tech/taxi-dashboard/issues/26#issuecomment-6831703608)
 - Ревизия: `TAXI-AGENT-PROTOCOL-V2-REWORK-01` ([Issue #28](https://github.com/iprus2026-tech/taxi-dashboard/issues/28)), личный OWNER G0 [#6836138282](https://github.com/iprus2026-tech/taxi-dashboard/issues/28#issuecomment-6836138282), исходный HEAD `47872072a4be6f5dc4aa6ffdb296ff7f58ef1ae7`, сессия `session_01UHQjyfBPVwEsksRKHAxcJL`, [ASSIGN #6836474247](https://github.com/iprus2026-tech/taxi-dashboard/issues/28#issuecomment-6836474247). См. §9
+- Ревизия F4: `TAXI-AGENT-PROTOCOL-V2-F4-WIRE-01` ([Issue #32](https://github.com/iprus2026-tech/taxi-dashboard/issues/32)), личный OWNER G0 [#6850660930](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6850660930), Base `cf92e83c45f8b0ed9e310f2bbcb96bec6dd39059`, сессия `session_01UHQjybzrunmUVCwurrxXj2`, [ASSIGN #6851942229](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6851942229). См. §10
+- Ревизия F4-REWORK: `TAXI-AGENT-PROTOCOL-V2-F4-REWORK-01` ([Issue #34](https://github.com/iprus2026-tech/taxi-dashboard/issues/34)), политика владельца [#6862874513](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6862874513), личный OWNER G0 [#6862884651](https://github.com/iprus2026-tech/taxi-dashboard/issues/34#issuecomment-6862884651), Base `cf92e83c45f8b0ed9e310f2bbcb96bec6dd39059`, сессия `session_01UHQjydeoDc24rA1Tpnhh6Y`, [ASSIGN #6863248342](https://github.com/iprus2026-tech/taxi-dashboard/issues/34#issuecomment-6863248342). См. §11
 
 ## 1. Статус: `DRAFT / NOT ACTIVE`
 
@@ -36,6 +38,7 @@
 | [LIFECYCLE.md](LIFECYCLE.md) | сериализация сообщений, CLAIM/2, ASSIGN/2, fencing, lease, восстановление, личный G0 для каждого RESUME/2, схема RESUME/2, HANDOFF/2 | AC-2, AC-7 |
 | [EVIDENCE.md](EVIDENCE.md) | `EvidenceRef/2`, `body_sha256` и граница провенанса, конверт `ISSUE_TEXT_LF/1`, проверки изменения, итоги VERIFIED/NOT_VERIFIED/STALE, нормализация времени GitHub | AC-4, AC-7 |
 | [QA-REPORT.md](QA-REPORT.md) | независимые измерения, инварианты, словарь reason_code, таблица исходов, независимость проверяющего, порядок вычисления итога | AC-5 |
+| [F4-WIRE.md](F4-WIRE.md) | проводная форма `AGENT-MSG/2 INDEXED` для `HANDOFF/2` и `QA-REPORT/2`: обёртка, байты, ключи, списки, типы, инварианты, привязка, таксономия ошибок `F4-*`, синтетические векторы, контракт будущего валидатора | F4 (Issue #32; исправлен ревизией #34) |
 | [RESUME2-FIXTURE.md](RESUME2-FIXTURE.md) | закреплённый канонический пример RESUME/2: 757 байт, SHA-256 `55709c80…aaaa6` | AC-6, AC-7 |
 | [TEST-CASES.md](TEST-CASES.md) | положительные и отрицательные случаи как документация | AC-6 |
 | [`fixtures/`](fixtures/) | точные байты векторов, 24 отрицательные фикстуры RESUME/2, [`SHA256SUMS`](fixtures/SHA256SUMS) | AC-6 |
@@ -77,7 +80,7 @@
 3. **Lease ASSIGN/2 не продлевается**, в том числе CHECKPOINT/2. Это строже v1 §5.3 и следует требованию «без одностороннего продления» ([LIFECYCLE.md §5](LIFECYCLE.md)). **Решено владельцем** (замечание F3): [OWNER-DECISION #6836003274](https://github.com/iprus2026-tech/taxi-dashboard/issues/26#issuecomment-6836003274) утверждает для будущего v2 `assign2_lease_policy: NON_RENEWABLE` и `checkpoint2_lease_extension: FORBIDDEN`. После истечения lease ASSIGN/2 нужно новое отдельное разрешение (`expired_assign2_requires_new_authorization: true`). Политика RESUME/2 `PT12H` сохраняется (п.4). Действующий v1, включая продление lease через CHECKPOINT до истечения (v1 §5.3), **не меняется** (`active_v1_policy: UNCHANGED`). Решение не активирует v2. Запись — [LIFECYCLE.md §5.1](LIFECYCLE.md).
 4. **Lease RESUME/2 — ровно PT12H**, а не «до PT12H». Другая длительность требует нового решения владельца по новой ревизии контракта.
 5. **RESUME/2 для `CODE_CHANGE/1` не определён.** Восстановление code-задачи идёт через новый личный G0 и новый ASSIGN/2 с сохранением процедуры v1 §8.2 по HEAD ([LIFECYCLE.md §6.1](LIFECYCLE.md)).
-6. **Сериализация HANDOFF/2 и QA-REPORT/2.** Поля и инварианты зафиксированы. Точная проводная форма со списками отложена до задачи валидатора. До неё эти сообщения машинно не проверяются.
+6. **Сериализация HANDOFF/2 и QA-REPORT/2.** Поля и инварианты зафиксированы. Точная проводная форма со списками определена ревизией F4 в [F4-WIRE.md](F4-WIRE.md) (§10) и исправлена ревизией #34 (§11). Машинно эти сообщения по-прежнему не проверяются: валидатор — отдельная будущая задача. Открыт GAP-F4-REQ-01: необязательность AC не выражается в SPEC/2 (F4-WIRE.md §19).
 7. **Диапазон лет 1970–9999** для времени GitHub ([EVIDENCE.md §6.1](EVIDENCE.md)).
 8. **`evidence_outcome`** — итог одного доказательства. Он явно отображён на `verification_status` и `report_validity`. Набор значений и отображение задаёт только [EVIDENCE.md §2](EVIDENCE.md); после ревизии §9 значений четыре.
 9. **Имя `DECODED_BODY_UTF8/1`** для `body_sha256`. В DESIGN_NOTE/2 этот хэш назывался «raw API body hash». Термин изменён, чтобы хэш не выдавался за аттестацию сырых байтов (условие 2).
@@ -127,3 +130,47 @@
 | F4 | — | без изменений: проводная форма HANDOFF/2 и QA-REPORT/2 по-прежнему отложена (§5 п.6); до неё v2 не может быть активирован |
 
 Остальные 35 файлов каталога, в том числе все 30 фикстур (`fixtures/SHA256SUMS`), побайтно совпадают с исходным HEAD. Статус по-прежнему `DRAFT / NOT ACTIVE`. Нужны отдельный независимый QA по точному HEAD ревизии и отдельная незаинтересованная проверка происхождения #22/#24/sem-03. Валидатора v2 нет; примеры и отрицательные случаи ревизии — документация, а не прогон.
+
+## 10. Ревизия F4 `TAXI-AGENT-PROTOCOL-V2-F4-WIRE-01` (Issue #32)
+
+- SPEC/1: [#6849953313](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6849953313), `issue_spec_sha256` `37d209c2ec8c0ed594e1966ae0efb96e7708c3e0c4aa41e96027a8f87a559a06` (5036 байт). Личный OWNER G0 [#6850660930](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6850660930): `target_branch: main`, `decision_scope: F4_WIRE_DOCS_ONLY`, `existing_fixtures_modification: forbidden`, `validator_implementation: not_authorized`, `pr_creation: not_authorized`, `v2_activation: forbidden`.
+- CLAIM [#6851856755](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6851856755) новой сессии `session_01UHQjybzrunmUVCwurrxXj2`. ASSIGN v1 [#6851942229](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6851942229): lease 12 ч до `2026-11-13T23:47:41Z`, одна ветка `agent/claude-code/taxi-agent-protocol-v2-f4-wire-01` от Base `cf92e83c45f8b0ed9e310f2bbcb96bec6dd39059`. Сессии, назначения и ветки #26 и #28 не наследуются. `ASSIGN/2` не используется: действует v1.
+- Раскрытие: прежние сессии того же агента готовили v2 (#26, #28). Независимый QA этой ревизии ДОЛЖЕН выполнить другой агент в отдельной фактической сессии.
+
+| Файл | Что сделано |
+|---|---|
+| [F4-WIRE.md](F4-WIRE.md) | новый: проводная форма `AGENT-MSG/2 INDEXED`, уровни M/W/B/L/K/S/H/Q/X, таксономия `F4-ERR/1`, 4 положительных вектора с длиной и SHA-256, 24 байтовых и 14 прочих отрицательных векторов, контракт будущего валидатора, решения нормализации (§17), трассировка AC-1..AC-10 (§18) |
+| [LIFECYCLE.md](LIFECYCLE.md) | примечание о ревизии; последний абзац §1 и примечание после таблицы §7 ссылаются на F4-WIRE.md |
+| [QA-REPORT.md](QA-REPORT.md) | примечание о ревизии; абзац о проводной форме в §2; абзац о D16 и кодах `F4-*` после таблицы §4.2; проверки C-11–C-17 в §8 |
+| [TEST-CASES.md](TEST-CASES.md) | примечание о ревизии; §5 (векторы F4), §6 (матрица приёмки будущего валидатора) |
+| этот README | шапка, строка таблицы §3, §5 п.6, этот раздел |
+
+Не менялись: `docs/agents/PROTOCOL.md` v1, EVIDENCE.md, PROFILES.md, RESUME2-FIXTURE.md, `.gitattributes`, все 30 файлов `fixtures/` и `SHA256SUMS` (RESUME/2 757 байт, SPEC/2 499 байт, `sem-03`), байты таблицы D01–D16 в обеих копиях (7038 байт, `e91f4d30…ba03`), I1–I10, словарь `reason_code`, политика владельца F3 (§5 п.3–4).
+
+Строка F4 в таблице §9 — историческая запись ревизии #28 и не переписывается. **Итог ревизии #32: независимый [QA-REPORT/1 FAIL #6862054097](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6862054097)** по HEAD `a9c1c5436c5253ac7d509e7bde0e532ae5e81173` (P1-QA33-01, P2-QA33-02…04, четыре сужения без решения владельца). Задача #32 заблокирована, её HEAD и FAIL неизменны. Исправления — §11; ниже — текст записи #32 в редакции её автора. Статус каталога по-прежнему `DRAFT / NOT ACTIVE`. Дальше нужны: независимый QA по точному HEAD этой ревизии; отдельное решение владельца о PR и G2; затем отдельная задача `CODE_CHANGE/1` на валидатор ([F4-WIRE.md §16](F4-WIRE.md)), зависящая от `status:done` этой задачи; и только после проверки валидатора — отдельное решение об активации (этап D3, §8). Векторы F4 — документация, а не прогон и не фикстуры.
+
+## 11. Ревизия `TAXI-AGENT-PROTOCOL-V2-F4-REWORK-01` (Issue #34)
+
+- SPEC/1: [#6862520443](https://github.com/iprus2026-tech/taxi-dashboard/issues/34#issuecomment-6862520443), `issue_spec_sha256` `7ceb84da5d2b0a2d4701e13f6361ca32f43b784ef02b8240f8fa61328cb0eb54` (5026 байт). Личная политика владельца [#6862874513](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6862874513) в #32: `PRESERVE_PREVIOUS_SEMANTICS`, отклонены четыре сужения прежнего F4-WIRE.md §17. Личный OWNER G0 [#6862884651](https://github.com/iprus2026-tech/taxi-dashboard/issues/34#issuecomment-6862884651): `target_branch: main`, `decision_scope: F4_REWORK_DOCS_ONLY`, `historical_branch_changes: forbidden`, `existing_fixtures_changes: forbidden`, `validator_implementation: forbidden`, `pr_creation: not_authorized`, `v2_activation: forbidden`.
+- CLAIM [#6863042678](https://github.com/iprus2026-tech/taxi-dashboard/issues/34#issuecomment-6863042678) новой фактической сессии `session_01UHQjydeoDc24rA1Tpnhh6Y`. ASSIGN v1 [#6863248342](https://github.com/iprus2026-tech/taxi-dashboard/issues/34#issuecomment-6863248342): lease 12 ч до `2026-11-14T07:49:36Z`. Новая ветка `agent/claude-code/taxi-agent-protocol-v2-f4-rework-01` создана от Base `cf92e83c45f8b0ed9e310f2bbcb96bec6dd39059` после ASSIGN. Пять файлов импортированы из неизменного HEAD `a9c1c5436c5253ac7d509e7bde0e532ae5e81173` ([HANDOFF #6852855086](https://github.com/iprus2026-tech/taxi-dashboard/issues/32#issuecomment-6852855086)) и исправлены. Старая ветка, её HANDOFF и FAIL не менялись. CLAIM, ASSIGN и lease #32 не используются.
+- Раскрытие: прежние сессии `claude-code` написали черновик v2, фикстуры и исходный F4 (#26, #28, #32). Эта сессия — только исполнитель. Независимый QA ДОЛЖЕН выполнить другой агент в отдельной фактической сессии по отдельному разрешению.
+
+| Замечание QA #6862054097 | Исправление | Доказательство (синтетическое, офлайн) |
+|---|---|---|
+| P1-QA33-01 | `F4-X09` выполняет EVIDENCE.md §2.1 без изменений: опровергнутый digest при стабильном источнике — D02, отчёт `VALID` / `FAIL`, а не D15 (F4-WIRE.md §10.2, §10.3) | POS-F4-05 = CE-D02-X09 (2007 байт, `09cff184…a23f`); X-POS-02; X-NEG-09/10 |
+| P2-QA33-02 | E1 не пройден ⇒ E2–E8 не выполняются; E5 не пройден ⇒ excerpt не вычисляется и не сравнивается; E7 заменяет только E5/E6 (§10.3) | POS-F4-04 → X-POS-01; POS-F4-06 (D14 через E5) → X-POS-03 |
+| P2-QA33-03 | не-`PASS` в `before` → `F4-S02` на уровне S, первым по порядку уровней; `F4-H04`/`F4-Q07` для него не обещаются (§6.1, §9) | NEG-F4-25 = CE-BEFORE-CODE (1969 байт, `cff1abff…86ce`, строка 16) |
+| P2-QA33-04 | `F4-B01` проверяется первым; при списках до предела и > 65536 байт — `F4-B01`, не `F4-B12`; пределы не менялись (§3, §17 п.10) | NEG-F4-26 (89329 байт, `bf47c184…a4ee`); контроль NEG-F4-27 (`F4-B12`) |
+| политика п.1–4 | прежняя семантика: точный diff без 1..200; словарь §4 QA-REPORT.md для `not_run`; `required` из SPEC (`F4-Q02` снят, `F4-X16` → `UNRESOLVED`); пути UTF-8/NFC и `enc(path)` (F4-WIRE.md §6, §7, §17, §19) | POS-F4-07, NEG-F4-28, NEG-F4-29, OPT-F4-01…03 |
+
+| Файл | Что сделано |
+|---|---|
+| [F4-WIRE.md](F4-WIRE.md) | шапка; §3 (приоритет B01); §6 (`path`, `url`/`enc`, `not_run.reason_code`, профильное значение, §6.1 before); §7 п.18; §9 (`F4-H04`, `F4-Q02` снят, `F4-Q07`, R5); §10.2 (`F4-X09`, `F4-X16`); новый §10.3; §11; §13 (комментарий `12345689`); §14 (POS-F4-05…07, §14.6); §15 (NEG-F4-22 снят, NEG-F4-25…29, X-POS-01…03, X-NEG-09/10, §15.4); §16 (`UNRESOLVED`, зависимость от #34); §17; §18 (трассировка #34); новый §19 |
+| [LIFECYCLE.md](LIFECYCLE.md) | примечание о ревизии; примечание после таблицы §7 |
+| [QA-REPORT.md](QA-REPORT.md) | примечание о ревизии; абзац о проводной форме в §2; C-18–C-21 |
+| [TEST-CASES.md](TEST-CASES.md) | примечание о ревизии; §5 и §6 для новых и переклассифицированных векторов |
+| этот README | шапка, строка таблицы §3, §5 п.6, конец §10, этот раздел |
+
+Не менялись: `docs/agents/PROTOCOL.md` v1, EVIDENCE.md, PROFILES.md, RESUME2-FIXTURE.md, `.gitattributes`, все 30 файлов `fixtures/` и `SHA256SUMS`, байты таблицы D01–D16 в обеих копиях (7038 байт, `e91f4d30…ba03`), I1–I10, словарь `reason_code`, политика F3, `TARGET_FAST_FORWARD` как source-check, D15 для отредактированного `QA-REPORT/2`, грамматика `check_id`, общие пределы размера.
+
+Открыто: GAP-F4-REQ-01 (F4-WIRE.md §19) — нужно отдельное решение владельца. Статус каталога `DRAFT / NOT ACTIVE`. Дальше: независимый QA по точному HEAD этой ревизии; затем отдельное решение владельца о PR и G2. Валидатор — отдельная будущая задача, зависящая от `status:done` #34. Исполняемый валидатор, runtime, интеграционные и production-тесты: `NOT_RUN`.
