@@ -1,0 +1,4 @@
+BEGIN-EVIDENCE-TEXT/1 id=case-0001
+alpha
+beta
+END-EVIDENCE-TEXT/1 id=case-0001

@@ -1,0 +1,24 @@
+agent-msg
+type: RESUME
+v: 2
+task: TAXI-PROTOCOL-EXAMPLE-01
+agent: gpt
+coordinator_session: synth-coord-0001
+assignee: deepseek-qa
+session: synth-reviewer-0002
+ts: 2026-11-12T15:00:00.000Z
+owner_decision_ref: 12345670
+claim_ref: 12345672
+previous_assign_ref: 12345671
+issue_spec_sha256: 1AF6F8E4148697A85F6970AC9FB98BF0BDE97A543203A1D4A77CB5E8265FE559
+base_sha: 48b0454d3b68f90e7687bd00b2ccc5a9318f6d70
+target_branch: main
+source_ref: refs/heads/main
+source_sha: 48b0454d3b68f90e7687bd00b2ccc5a9318f6d70
+task_role: EVIDENCE_REVIEWER
+branch: none
+last_artifact_ref: none
+last_artifact_updated_at: none
+last_artifact_body_sha256: none
+refs_snapshot_sha256: 032e90d80bbec3b3c125886c50216d059d306ebd9101fee1a7a1a728cdedd47c
+lease_until: 2026-11-13T03:00:00.000Z
