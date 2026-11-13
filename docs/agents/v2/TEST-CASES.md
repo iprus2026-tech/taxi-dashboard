@@ -147,6 +147,7 @@
 
 - **Результат и выход** — по F4-WIRE.md §16.3: `ACCEPT` (0), `REJECT` (1), `ACCEPT_STRUCTURAL` (3; уровни M или X не прогонялись). «Отчёт: форма ACCEPT» означает, что отчёт, верно записавший описанную ситуацию, проходит форму, а его итог (`report_validity` / `verdict`) указан рядом.
 - **Ошибка** — диагностический код `F4-*` для `HANDOFF/2` и `QA-REPORT/2`. Для FLAT-сообщений (`RESUME/2` и другие) действуют правила [LIFECYCLE.md §1, §6.3](LIFECYCLE.md); F4 их диагностические коды не определяет, и в столбце стоит `FLAT` с ближайшим аналогом F4 для справки. `PROC` — решение координатора, а не проверка байтов сообщения.
+- **Вне F4.** Контракт `F4-RESULT/1` и коды выхода (F4-WIRE.md §16.3) относятся только к `HANDOFF/2` и `QA-REPORT/2`. Для FLAT-сообщений, SPEC/2, снимка refs и нормализации времени матрица задаёт только ожидаемую классификацию («принят» или «отвергнут» и `reason_code`), а интерфейс и коды выхода определит SPEC задачи валидатора (F4-WIRE.md §16.5 п.1). В таких строках код выхода не указан.
 - **Провенанс ожидания** — словарь [QA-REPORT.md §2](QA-REPORT.md): исход выведен из текста (`INFERRED`), длины и SHA-256 пересчитаны автором (`AGENT_REPORTED` для проверяющего, пока он не пересчитает их сам).
 - **Воспроизведение:** `OFFLINE` — только байты из `fixtures/` или F4-WIRE.md; `CONTEXT` — нужен синтетический контекст (RESUME2-FIXTURE.md §2 или F4-WIRE.md §13) с записанными ответами API и Git; сеть в тестах не используется.
 
@@ -154,15 +155,15 @@
 
 | ID | Объект | Результат / выход | Ошибка | `reason_code` → строка | Провенанс | Воспроизведение |
 |---|---|---|---|---|---|---|
-| POS-01 | RESUME/2, фикстура 757 байт | `ACCEPT_STRUCTURAL` / 3 без контекста; `ACCEPT` / 0 в контексте RESUME2-FIXTURE.md §2 | — | `none` | `INFERRED`; байты `AGENT_REPORTED` | `OFFLINE`, `CONTEXT` |
-| POS-02 | SPEC/2, 499 байт | `ACCEPT` / 0 (каноническая форма и сочетание профиля) | — | `none` | то же | `OFFLINE` |
-| POS-03 | снимок refs, 78 байт | `ACCEPT` / 0 | — | `none` | то же | `OFFLINE` |
+| POS-01 | RESUME/2, фикстура 757 байт | вне F4: принят (синтаксис офлайн; ссылки — в контексте RESUME2-FIXTURE.md §2) | `FLAT` | `none` | `INFERRED`; байты `AGENT_REPORTED` | `OFFLINE`, `CONTEXT` |
+| POS-02 | SPEC/2, 499 байт | вне F4: принята (каноническая форма и сочетание профиля) | — | `none` | то же | `OFFLINE` |
+| POS-03 | снимок refs, 78 байт | вне F4: принят | — | `none` | то же | `OFFLINE` |
 | POS-04, POS-05 | тело доказательства LF и CRLF | E1–E8: `VERIFIED`; один payload, разные `body_sha256` | — | `none` → D01 | то же | `CONTEXT` |
 | POS-06 | read-only, fast-forward цели | отчёт: форма `ACCEPT`; `after.s5: TARGET_FAST_FORWARD`, `STALE_SOURCE` не выставляется | — | `none` | `INFERRED` | `CONTEXT` |
 | POS-07 | `HANDOFF/2` `CODE_CHANGE/1` (= POS-F4-03) | `ACCEPT_STRUCTURAL` / 3; `ACCEPT` / 0 в контексте F4-WIRE.md §13 | — | `none` | то же | `OFFLINE`, `CONTEXT` |
 | POS-08 | обязательный check COMPLETED / VERIFIED / FAIL | отчёт: форма `ACCEPT`; `VALID` / `FAIL` (§9.3, строка D02) | — | `none` → D02 | `INFERRED` | `OFFLINE` |
 | POS-09 | все обязательные check PASS (= POS-F4-02) | `ACCEPT_STRUCTURAL` / 3; `ACCEPT` / 0 в контексте; `VALID` / `PASS` | — | `none` → D01 | то же | `OFFLINE`, `CONTEXT` |
-| POS-10 | `updated_at` `2026-11-12T16:55:03Z` | нормализация в `2026-11-12T16:55:03.000Z` | — | `none` | `INFERRED` | `OFFLINE` |
+| POS-10 | `updated_at` `2026-11-12T16:55:03Z` | вне F4: нормализация в `2026-11-12T16:55:03.000Z` (используется уровнями M и X) | — | `none` | `INFERRED` | `OFFLINE` |
 | POS-F4-01 | `HANDOFF/2` read-only | `ACCEPT_STRUCTURAL` / 3; `ACCEPT` / 0 в контексте | — | `none` | `INFERRED`; байты `AGENT_REPORTED` | `OFFLINE`, `CONTEXT` |
 | POS-F4-02 | `QA-REPORT/2` `VALID` / `PASS` | `ACCEPT_STRUCTURAL` / 3; `ACCEPT` / 0 в контексте | — | `none` | то же | `OFFLINE`, `CONTEXT` |
 | POS-F4-03 | `HANDOFF/2` `CODE_CHANGE/1` | `ACCEPT_STRUCTURAL` / 3; `ACCEPT` / 0 в контексте | — | `none` | то же | `OFFLINE`, `CONTEXT` |
@@ -177,9 +178,9 @@
 | NEG-02 | `REJECT` / 1 | `F4-X12` | `SESSION_STALE`; отчёт по такому `HANDOFF/2` `STALE` / `VOID` | `CONTEXT` |
 | NEG-03 | `PROC`; артефакты со старшим токеном → `REJECT` / 1 | `F4-X11` | `ASSIGN_FENCE_STALE` | `CONTEXT` |
 | NEG-04 | `REJECT` / 1 | `F4-X13` | `LEASE_EXPIRED`; `STALE` / `VOID` | `CONTEXT` |
-| NEG-05 | `REJECT` / 1 | `FLAT` | `SCHEMA_INVALID` (LIFECYCLE.md §5.1 п.1) | `CONTEXT` |
+| NEG-05 | вне F4: отвергнут | `FLAT` | `SCHEMA_INVALID` (LIFECYCLE.md §5.1 п.1) | `CONTEXT` |
 | NEG-06 | `REJECT` / 1 | `F4-X11` | `ASSIGN_FENCE_STALE`; `STALE` / `VOID` | `CONTEXT` |
-| NEG-07 | `REJECT` / 1 | `FLAT` | `ASSIGN_FENCE_STALE` | `CONTEXT` |
+| NEG-07 | вне F4: отвергнут | `FLAT` | `ASSIGN_FENCE_STALE` | `CONTEXT` |
 | NEG-08, NEG-09 | `REJECT` / 1 | `F4-X10` | `CONFLICT_OF_INTEREST`; `INVALID`, verdict отсутствует | `CONTEXT` |
 | NEG-10 | E4 или E7: `STALE` / `STALE_EVIDENCE`; отчёт: форма `ACCEPT`, `STALE` / `VOID` (§9.4 R2). Отчёт с `VERIFIED` для такой ссылки → `REJECT` / 1 | `F4-X09` (только при неверной записи) | `STALE_EVIDENCE` → D08 | `CONTEXT` |
 | NEG-11 | `REJECT` / 1 | `F4-M02` для `HANDOFF/2`; `FLAT` для `ASSIGN/2`; как основание — `F4-X03` | `SCHEMA_INVALID` → D12 | `CONTEXT` |
@@ -188,14 +189,14 @@
 | NEG-14 | то же | то же | `EVIDENCE_NOT_ACCESSIBLE` → D03 | `CONTEXT` |
 | NEG-15 | E6: `VERIFIED`, check FAIL / COMPLETED / VERIFIED; отчёт: форма `ACCEPT`, `VALID` / `FAIL` | `F4-X09` (только при неверной записи) | `none` → D02 | `CONTEXT` |
 | NEG-16 | `REJECT` / 1 | `F4-X04` (`HANDOFF/2`), `F4-X08` (`QA-REPORT/2`) | `UNAPPROVED_BASE`; `INVALID` | `CONTEXT` |
-| NEG-17, NEG-18 | `REJECT` / 1 | `FLAT` | `UNAPPROVED_BASE` | `CONTEXT` |
-| NEG-19 | `REJECT` / 1 при ASSIGN; в ходе проверки `after.s3: STALE_SOURCE` → отчёт: форма `ACCEPT`, `STALE` / `VOID` | `F4-X05` / — | `UNAPPROVED_BASE` / `STALE_SOURCE` | `CONTEXT` |
+| NEG-17, NEG-18 | вне F4: отвергнут | `FLAT` | `UNAPPROVED_BASE` | `CONTEXT` |
+| NEG-19 | `PROC`: при ASSIGN координатор не выдаёт назначение; в ходе проверки `after.s3: STALE_SOURCE` → отчёт: форма `ACCEPT`, `STALE` / `VOID` | `PROC` / — | `UNAPPROVED_BASE` / `STALE_SOURCE` | `CONTEXT` |
 | NEG-20 | `REJECT` / 1 | `F4-X04` | `UNAPPROVED_BASE` | `CONTEXT` |
-| NEG-21 | см. §6.3 | `FLAT` | `CANONICALIZATION_ERROR` или `SCHEMA_INVALID` | `OFFLINE` |
+| NEG-21 | вне F4: отвергнут, см. §6.3 | `FLAT` | `CANONICALIZATION_ERROR` или `SCHEMA_INVALID` | `OFFLINE` |
 
 ### 6.3 Фикстуры RESUME/2 (§3)
 
-Все — `REJECT` / 1. Провенанс: `INFERRED`, байты `AGENT_REPORTED` (`fixtures/SHA256SUMS`).
+Все — вне F4 (FLAT): ожидается «отвергнут» с указанным `reason_code`; код выхода определит задача валидатора. Провенанс: `INFERRED`, байты `AGENT_REPORTED` (`fixtures/SHA256SUMS`).
 
 | ID | Ошибка (аналог F4 — справочно) | `reason_code` | Воспроизведение |
 |---|---|---|---|
@@ -215,17 +216,18 @@
 | sem-01 | `FLAT` (сессия ≠ `new_session` G0 и CLAIM/2) | `AUTH_ATTESTATION_UNVERIFIED` | `CONTEXT` |
 | sem-02, sem-04, sem-05, sem-06, sem-07, sem-08 | `FLAT` | `SCHEMA_INVALID` | `OFFLINE` |
 | sem-03 | `FLAT` (`lease_until` ≠ `ts` + PT12H) | `SCHEMA_INVALID` | `OFFLINE` |
-| sem-09, sem-10 | `FLAT` (`F4-X04`) | `UNAPPROVED_BASE` | `CONTEXT` |
+| sem-09 | `FLAT` (`F4-X05`) | `UNAPPROVED_BASE` | `CONTEXT` |
+| sem-10 | `FLAT` (`F4-X04`) | `UNAPPROVED_BASE` | `CONTEXT` |
 | sem-11 | `FLAT` (`F4-X11`) | `ASSIGN_FENCE_STALE` | `CONTEXT` |
 
 ### 6.4 Прочие отрицательные случаи (§4, EVIDENCE.md §2.3–§2.5, QA-REPORT.md §7)
 
 | ID | Результат / выход | Ошибка | `reason_code` → строка / итог | Воспроизведение |
 |---|---|---|---|---|
-| NEG-AC1-01 | `REJECT` / 1 для SPEC/2; фактическая запись — содержание QA: `SCOPE_VIOLATION`, `VALID` / `VOID` | — | `SCHEMA_INVALID` / `SCOPE_VIOLATION` | `OFFLINE` / `CONTEXT` |
+| NEG-AC1-01 | вне F4: SPEC/2 отвергнута; фактическая запись — содержание QA: `SCOPE_VIOLATION`, `VALID` / `VOID` | — | `SCHEMA_INVALID` / `SCOPE_VIOLATION` | `OFFLINE` / `CONTEXT` |
 | NEG-AC1-02 | `REJECT` / 1 | `F4-X12` | `SESSION_STALE` | `CONTEXT` |
 | NEG-AC1-03 | `REJECT` / 1 | `F4-X04` | `UNAPPROVED_BASE` | `CONTEXT` |
-| NEG-AC3-01 | `REJECT` / 1: `branch: none` при `CODE_CHANGE/1` → `F4-S10`; несуществующая ветка → `F4-X05` | `F4-S10` / `F4-X05` | `SCHEMA_INVALID` / `UNAPPROVED_BASE` | `OFFLINE` / `CONTEXT` |
+| NEG-AC3-01 | `REJECT` / 1: `branch: none`, другое имя или несуществующая ветка при `CODE_CHANGE/1` | `F4-X05` | `UNAPPROVED_BASE` | `CONTEXT` |
 | NEG-AC3-02 | отчёт: форма `ACCEPT`, `after.s5: SCOPE_VIOLATION` → `VALID` / `VOID` (R3) | — | `SCOPE_VIOLATION` | `CONTEXT` |
 | NEG-AC3-03 | отчёт: форма `ACCEPT`, `after.s5: REF_DRIFT_UNEXPLAINED` → `STALE` / `VOID` (R2) | — | `REF_DRIFT_UNEXPLAINED` | `CONTEXT` |
 | NEG-AC3-04 | отчёт: форма `ACCEPT`, `after.s4: STALE_SOURCE` → `STALE` / `VOID` | — | `STALE_SOURCE` | `CONTEXT` |
@@ -237,17 +239,17 @@
 | NEG-AC5-04 | `REJECT` / 1 | `F4-L01` (нет строки `agent-msg`) или `F4-K04` | `SCHEMA_INVALID` → D15 | `OFFLINE` |
 | NEG-AC5-05 | отчёт: форма `ACCEPT`, `VALID` / `FAIL` (строка `UNRUN_REQUIRED` §9.3) | — | `UNRUN_REQUIRED` | `OFFLINE` |
 | NEG-AC5-06 | `REJECT` / 1 | `F4-Q08` | `SCHEMA_INVALID` → D15 | `OFFLINE` |
-| NEG-AC7-01..03 | `REJECT` / 1 | `FLAT` для RESUME/2; `F4-X02` для оснований | `AUTH_ATTESTATION_UNVERIFIED` | `CONTEXT` |
+| NEG-AC7-01..03 | RESUME/2 вне F4: отвергнут; для оснований `HANDOFF/2` и `QA-REPORT/2` — `REJECT` / 1 | `FLAT` / `F4-X02` | `AUTH_ATTESTATION_UNVERIFIED` | `CONTEXT` |
 | NEG-AC7-04 | для доказательства E3: `NOT_VERIFIED` / `EVIDENCE_TS_UNVERIFIABLE` (D05); для сообщения `F4-M01` → `REJECT` / 1 | `F4-M01` | D05 / D13 | `CONTEXT` |
 | NEG-AC7-05 | вне валидатора: формулировка текста проверяется проверяющим | — | — | — |
-| NEG-AC8-01 | `REJECT` / 1 | `F4-S01` (`v: 1`) или `FLAT` | `SCHEMA_INVALID` | `OFFLINE` |
+| NEG-AC8-01 | `REJECT` / 1 для `HANDOFF/2` и `QA-REPORT/2`; FLAT вне F4: отвергнут | `F4-S01` (`v: 1`) / `FLAT` | `SCHEMA_INVALID` | `OFFLINE` |
 | NEG-AC8-02 | вне формы: `ACCEPT` валидатора до активации v2 не делает сообщение действительным ([README.md §1](README.md)) | — | — | — |
 | NEG-AC8-03 | `REJECT` / 1 | `F4-X02` | `AUTH_ATTESTATION_UNVERIFIED` | `CONTEXT` |
 | NEG-F1-01, NEG-F1-02 | `REJECT` / 1, если пара нарушена; согласованная, но ложная пара — `F4-X09` | `F4-Q04` / `F4-X09` | `SCHEMA_INVALID` → D15 | `OFFLINE` / `CONTEXT` |
 | NEG-F1-03 | `REJECT` / 1: `INVALID` не выводится из содержания | `F4-Q08` | `SCHEMA_INVALID` → D15 | `OFFLINE` |
-| NEG-F1-04, NEG-F1-06, NEG-F1-07, NEG-F1-08 | `REJECT` / 1 | `F4-Q04` | `SCHEMA_INVALID` → D15 | `OFFLINE` |
+| NEG-F1-04, NEG-F1-06, NEG-F1-07, NEG-F1-08 | `REJECT` / 1 | `F4-Q04`; если ссылка не проходит E1 — раньше `F4-Q03` | `SCHEMA_INVALID` → D15 | `OFFLINE` |
 | NEG-F1-05 | неверная запись `INVALID` → `REJECT` / 1 (`F4-Q08`); правильная `VALID` / `FAIL` → форма `ACCEPT` | `F4-Q08` | D07 в check; отчёт `VALID` / `FAIL` | `OFFLINE` |
-| NEG-F2-01, NEG-F2-04 | `REJECT` / 1 | `F4-Q04` | `SCHEMA_INVALID` → D15 | `OFFLINE` |
+| NEG-F2-01, NEG-F2-04 | `REJECT` / 1 | `F4-Q03` (некорректный `comment_updated_at` не проходит E1, а check записан с `SCHEMA_INVALID` вместо `EVIDENCE_REF_INVALID`) | `SCHEMA_INVALID` → D15 | `OFFLINE` |
 | NEG-F2-02 | `REJECT` / 1, если отчёт записал `VERIFIED` для округлённого значения | `F4-X09` | `SCHEMA_INVALID`; правильно D05 | `CONTEXT` |
 | NEG-F2-03 | `REJECT` / 1 | `F4-S05` в основании → `F4-X03` | `SCHEMA_INVALID` → D11 | `CONTEXT` |
 | NEG-F2-05 | `REJECT` / 1 (= NEG-F4-15) | `F4-S05` | `SCHEMA_INVALID` → D15 | `OFFLINE` |
