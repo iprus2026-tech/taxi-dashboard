@@ -2237,3 +2237,272 @@ body.driving-mode .toast {
     font-size: 18px;
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   Итог дня из Яндекс Про
+   -------------------------------------------------------------------------- */
+
+.yday-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  gap: 20px;
+  align-items: start;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.yday-form,
+.yday-saved {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  box-shadow: var(--shadow-soft);
+}
+
+.yday-form__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 16px;
+  align-items: end;
+}
+
+.yday-kind {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.yday-kind legend {
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.yday-kind__options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.yday-kind__option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #0e141c;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.yday-kind__option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.yday-kind__option:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.16);
+  color: var(--text);
+}
+
+.yday-kind__option:has(input:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+
+.yday-form__state {
+  margin: 14px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.yday-group__title {
+  margin: 20px 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.yday-saved .yday-group__title {
+  margin-top: 0;
+}
+
+.yday-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.yday-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.yday-amount[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.yday-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid rgba(46, 204, 113, 0.35);
+  border-radius: var(--radius-md);
+  background: rgba(46, 204, 113, 0.08);
+}
+
+.yday-result__value {
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+
+.yday-result__value[data-sign="negative"] {
+  color: var(--danger);
+}
+
+.yday-result__hint {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.yday-error {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+  font-weight: 600;
+}
+
+.yday-error[hidden] {
+  display: none;
+}
+
+.yday-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.yday-saved__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.yday-saved__empty[hidden] {
+  display: none;
+}
+
+.yday-saved__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.yday-saved__btn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "date sum"
+    "kind kind";
+  gap: 2px 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #0e141c;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.yday-saved__btn:hover,
+.yday-saved__btn[aria-current="true"] {
+  border-color: var(--accent);
+}
+
+.yday-saved__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.yday-saved__date {
+  grid-area: date;
+  font-weight: 700;
+}
+
+.yday-saved__sum {
+  grid-area: sum;
+  justify-self: end;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.yday-saved__kind {
+  grid-area: kind;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.yday-saved__kind--final {
+  color: var(--green);
+}
+
+@media (max-width: 860px) {
+  .yday-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  /* На телефоне кнопка итога дня уходит отдельной строкой под «Историю»
+     и статус, чтобы шапка не выходила за ширину экрана. */
+  .topbar__actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .yday-toggle {
+    order: 3;
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  .yday-form,
+  .yday-saved {
+    padding: 14px;
+  }
+
+  .yday-form__top,
+  .yday-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .yday-actions .btn {
+    width: 100%;
+  }
+
+  .yday-result__value {
+    font-size: 26px;
+  }
+}

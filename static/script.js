@@ -5,6 +5,7 @@
    - пробег: восстанавливается с сервера, точки каждые 75 м
    - деньги: заказы, расходы, чистая прибыль
    - завершение смены с сохранением итогов в историю
+   - итог дня из Яндекс Про: ручная сверка, отдельно от смены
    ========================================================================== */
 
 "use strict";
@@ -116,6 +117,17 @@ const els = {
   amountHint: document.getElementById("amount-hint"),
   keypad: document.getElementById("keypad"),
   moneySubmit: document.getElementById("money-submit"),
+  ydayButton: document.getElementById("yday-btn"),
+  ydayScreen: document.getElementById("yday-screen"),
+  ydayClose: document.getElementById("yday-close"),
+  ydayForm: document.getElementById("yday-form"),
+  ydayDate: document.getElementById("yday-date"),
+  ydayState: document.getElementById("yday-state"),
+  ydayProceeds: document.getElementById("yday-proceeds"),
+  ydayError: document.getElementById("yday-error"),
+  ydaySave: document.getElementById("yday-save"),
+  ydaySavedList: document.getElementById("yday-saved-list"),
+  ydaySavedEmpty: document.getElementById("yday-saved-empty"),
 };
 
 const emptyShift = () => ({
@@ -1521,6 +1533,330 @@ function closeHistory() {
 }
 
 /* --------------------------------------------------------------------------
+   Итог дня из Яндекс Про
+   Ручная сверка с дневным отчётом. Хранится отдельно от смены: не создаёт
+   заказов и не меняет выручку. Все суммы считаются в целых копейках.
+   -------------------------------------------------------------------------- */
+
+const YDAY_INCOME_FIELDS = ["card", "cash", "bonuses", "tips"];
+const YDAY_DEDUCTION_FIELDS = ["commission", "extra_services"];
+const YDAY_FIELDS = [...YDAY_INCOME_FIELDS, ...YDAY_DEDUCTION_FIELDS];
+const YDAY_AMOUNT_RE = /^(\d{1,8})(?:[.,](\d{1,2}))?$/;
+const YDAY_MAX_KOPECKS = 1000000000;
+const YDAY_KIND_LABELS = { partial: "Промежуточный срез", final: "Итог дня" };
+const MOSCOW_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+const yday = {
+  date: null,
+  dirty: false,
+  saving: false,
+  loadSeq: 0,
+  returnFocus: null,
+};
+
+function moscowToday() {
+  // Москва живёт по UTC+3 без перехода на летнее время.
+  return new Date(Date.now() + MOSCOW_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function formatDayLabel(isoDate) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || "");
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : String(isoDate || "");
+}
+
+/** Сумма из поля ввода в копейках: пусто → 0, запятая или точка, до 2 знаков. */
+function parseKopecks(raw) {
+  const text = String(raw || "").replace(/[\s ]/g, "");
+  if (text === "") return 0;
+  const match = YDAY_AMOUNT_RE.exec(text);
+  if (!match) return null;
+  const kopecks = Number(match[1]) * 100 + Number((match[2] || "").padEnd(2, "0"));
+  return kopecks <= YDAY_MAX_KOPECKS ? kopecks : null;
+}
+
+function kopecksToInput(kopecks) {
+  const value = Number(kopecks) || 0;
+  if (value === 0) return "";
+  const rubles = Math.floor(value / 100);
+  const rest = value % 100;
+  return rest === 0 ? String(rubles) : `${rubles},${String(rest).padStart(2, "0")}`;
+}
+
+function kopecksToApi(kopecks) {
+  return `${Math.floor(kopecks / 100)}.${String(kopecks % 100).padStart(2, "0")}`;
+}
+
+function formatKopecks(kopecks) {
+  return formatMoney(Number(kopecks) / 100);
+}
+
+function ydayAmountInput(field) {
+  return document.getElementById(`yday-${field}`);
+}
+
+function ydayKind() {
+  const checked = els.ydayForm && els.ydayForm.querySelector('input[name="kind"]:checked');
+  return checked ? checked.value : "partial";
+}
+
+function setYdayKind(kind) {
+  if (!els.ydayForm) return;
+  for (const radio of els.ydayForm.querySelectorAll('input[name="kind"]')) {
+    radio.checked = radio.value === kind;
+  }
+}
+
+function setYdayError(message) {
+  if (!els.ydayError) return;
+  els.ydayError.textContent = message || "";
+  els.ydayError.hidden = !message;
+}
+
+function setYdayState(text) {
+  if (els.ydayState) els.ydayState.textContent = text;
+}
+
+/** Читает все суммы формы. invalid — поля, которые не удалось разобрать. */
+function readYdayAmounts() {
+  const amounts = {};
+  const invalid = [];
+  for (const field of YDAY_FIELDS) {
+    const input = ydayAmountInput(field);
+    const kopecks = parseKopecks(input ? input.value : "");
+    if (input) input.setAttribute("aria-invalid", kopecks === null ? "true" : "false");
+    if (kopecks === null) invalid.push(field);
+    amounts[field] = kopecks;
+  }
+  return { amounts, invalid };
+}
+
+function updateYdayProceeds() {
+  if (!els.ydayProceeds) return;
+  const { amounts, invalid } = readYdayAmounts();
+  if (invalid.length > 0) {
+    els.ydayProceeds.textContent = "—";
+    els.ydayProceeds.dataset.sign = "";
+    return;
+  }
+  const income = YDAY_INCOME_FIELDS.reduce((sum, field) => sum + amounts[field], 0);
+  const deductions = YDAY_DEDUCTION_FIELDS.reduce((sum, field) => sum + amounts[field], 0);
+  const proceeds = income - deductions;
+  els.ydayProceeds.textContent = formatKopecks(proceeds);
+  els.ydayProceeds.dataset.sign = proceeds < 0 ? "negative" : "";
+}
+
+function describeSnapshot(snapshot) {
+  const kind = snapshot.kind_label || YDAY_KIND_LABELS[snapshot.kind] || "";
+  const updated = new Date(snapshot.updated_at);
+  const when = Number.isNaN(updated.getTime())
+    ? ""
+    : ` · изменено ${updated.toLocaleString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })}`;
+  return `Сохранено: ${kind}${when}`;
+}
+
+function fillYdayForm(snapshot) {
+  for (const field of YDAY_FIELDS) {
+    const input = ydayAmountInput(field);
+    if (!input) continue;
+    input.value = snapshot ? kopecksToInput(snapshot.amounts_kopecks[field]) : "";
+    input.setAttribute("aria-invalid", "false");
+  }
+  setYdayKind(snapshot ? snapshot.kind : "partial");
+  setYdayState(snapshot ? describeSnapshot(snapshot) : "Новая запись: за эту дату ещё ничего не сохранено");
+  yday.dirty = false;
+  updateYdayProceeds();
+}
+
+async function loadYdayDate(isoDate) {
+  yday.date = isoDate;
+  if (els.ydayDate) els.ydayDate.value = isoDate;
+  setYdayError("");
+  setYdayState("Загружаем…");
+
+  const seq = ++yday.loadSeq;
+  try {
+    const data = await requestJSON(`/api/yandex-day/${encodeURIComponent(isoDate)}`);
+    if (seq !== yday.loadSeq) return;
+    fillYdayForm(data && data.snapshot);
+  } catch (error) {
+    if (seq !== yday.loadSeq) return;
+    fillYdayForm(null);
+    setYdayState("Не удалось загрузить запись за эту дату");
+    setYdayError(error.message);
+  }
+}
+
+function renderYdaySaved(days) {
+  if (!els.ydaySavedList) return;
+  els.ydaySavedList.replaceChildren();
+  const list = Array.isArray(days) ? days : [];
+  if (els.ydaySavedEmpty) els.ydaySavedEmpty.hidden = list.length > 0;
+
+  for (const snapshot of list) {
+    const item = makeEl("li", "yday-saved__item");
+    const button = makeEl("button", "yday-saved__btn");
+    button.type = "button";
+    button.dataset.date = snapshot.date;
+    if (snapshot.date === yday.date) button.setAttribute("aria-current", "true");
+
+    button.append(
+      makeEl("span", "yday-saved__date", formatDayLabel(snapshot.date)),
+      makeEl(
+        "span",
+        `yday-saved__kind yday-saved__kind--${snapshot.kind === "final" ? "final" : "partial"}`,
+        snapshot.kind_label || YDAY_KIND_LABELS[snapshot.kind] || ""
+      ),
+      makeEl("span", "yday-saved__sum", formatKopecks(snapshot.proceeds_kopecks))
+    );
+    item.append(button);
+    els.ydaySavedList.append(item);
+  }
+}
+
+async function loadYdaySaved() {
+  try {
+    const data = await requestJSON("/api/yandex-day");
+    renderYdaySaved(data && data.days);
+  } catch (error) {
+    renderYdaySaved([]);
+    if (els.ydaySavedEmpty) {
+      els.ydaySavedEmpty.textContent = `Список не загружен: ${error.message}`;
+      els.ydaySavedEmpty.hidden = false;
+    }
+  }
+}
+
+function confirmDiscardYday() {
+  return !yday.dirty || window.confirm("Несохранённые суммы будут потеряны. Продолжить?");
+}
+
+function switchYdayDate(isoDate) {
+  if (!isoDate || isoDate === yday.date) return;
+  if (!confirmDiscardYday()) {
+    if (els.ydayDate) els.ydayDate.value = yday.date || "";
+    return;
+  }
+  loadYdayDate(isoDate);
+  if (els.ydaySavedList) {
+    for (const button of els.ydaySavedList.querySelectorAll("button[data-date]")) {
+      if (button.dataset.date === isoDate) button.setAttribute("aria-current", "true");
+      else button.removeAttribute("aria-current");
+    }
+  }
+}
+
+async function saveYday(event) {
+  event.preventDefault();
+  if (yday.saving) return;
+  setYdayError("");
+
+  const isoDate = els.ydayDate ? els.ydayDate.value : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+    setYdayError("Выберите дату.");
+    if (els.ydayDate) els.ydayDate.focus();
+    return;
+  }
+  if (isoDate > moscowToday()) {
+    setYdayError("Эта дата ещё не наступила по московскому времени.");
+    if (els.ydayDate) els.ydayDate.focus();
+    return;
+  }
+
+  const { amounts, invalid } = readYdayAmounts();
+  if (invalid.length > 0) {
+    setYdayError(
+      "Проверьте суммы: только цифры, не больше двух знаков после запятой, не больше 10 000 000 ₽."
+    );
+    const first = ydayAmountInput(invalid[0]);
+    if (first) first.focus();
+    return;
+  }
+
+  const body = { kind: ydayKind(), amounts: {} };
+  for (const field of YDAY_FIELDS) body.amounts[field] = kopecksToApi(amounts[field]);
+
+  yday.saving = true;
+  if (els.ydaySave) els.ydaySave.disabled = true;
+  try {
+    const data = await requestJSON(`/api/yandex-day/${encodeURIComponent(isoDate)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    yday.date = isoDate;
+    fillYdayForm(data.snapshot);
+    showToast(data.replaced ? "Итог дня обновлён" : "Итог дня сохранён", "success");
+    loadYdaySaved();
+  } catch (error) {
+    setYdayError(`Не сохранено: ${error.message}`);
+  } finally {
+    yday.saving = false;
+    if (els.ydaySave) els.ydaySave.disabled = false;
+  }
+}
+
+function openYday() {
+  if (!els.ydayScreen) return;
+
+  yday.returnFocus = document.activeElement;
+  els.ydayScreen.hidden = false;
+  document.body.classList.add("is-history-open");
+
+  const today = moscowToday();
+  if (els.ydayDate) els.ydayDate.max = today;
+  if (els.ydaySavedEmpty) els.ydaySavedEmpty.textContent = "Пока ничего не сохранено.";
+
+  yday.date = null;
+  loadYdayDate(today);
+  loadYdaySaved();
+
+  if (els.ydayDate) els.ydayDate.focus();
+}
+
+function closeYday() {
+  if (!els.ydayScreen || els.ydayScreen.hidden) return;
+  if (!confirmDiscardYday()) return;
+
+  els.ydayScreen.hidden = true;
+  yday.dirty = false;
+  document.body.classList.remove("is-history-open");
+
+  const target = yday.returnFocus || els.ydayButton;
+  yday.returnFocus = null;
+  if (target && typeof target.focus === "function") target.focus();
+}
+
+function bindYdayEvents() {
+  if (els.ydayButton) els.ydayButton.addEventListener("click", openYday);
+  if (els.ydayClose) els.ydayClose.addEventListener("click", closeYday);
+  if (els.ydayForm) {
+    els.ydayForm.addEventListener("submit", saveYday);
+    els.ydayForm.addEventListener("input", (event) => {
+      if (event.target.classList.contains("yday-amount")) {
+        yday.dirty = true;
+        updateYdayProceeds();
+      }
+    });
+    els.ydayForm.addEventListener("change", (event) => {
+      if (event.target.name === "kind") yday.dirty = true;
+    });
+  }
+  if (els.ydayDate) {
+    els.ydayDate.addEventListener("change", () => switchYdayDate(els.ydayDate.value));
+  }
+  if (els.ydaySavedList) {
+    els.ydaySavedList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-date]");
+      if (button) switchYdayDate(button.dataset.date);
+    });
+  }
+}
+
+/* --------------------------------------------------------------------------
    Карта
    -------------------------------------------------------------------------- */
 
@@ -1677,6 +2013,8 @@ function bindEvents() {
     els.historyClose.addEventListener("click", closeHistory);
   }
 
+  bindYdayEvents();
+
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
 
@@ -1712,6 +2050,10 @@ function bindEvents() {
     }
 
     if (event.key !== "Escape") return;
+    if (els.ydayScreen && !els.ydayScreen.hidden) {
+      closeYday();
+      return;
+    }
     if (document.body.classList.contains("driving-mode")) {
       setDrivingMode(false);
       return;
