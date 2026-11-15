@@ -240,9 +240,33 @@ def _write_json(path: str, data) -> None:
     os.replace(tmp_path, path)
 
 
+class StateReadError(Exception):
+    """Файл состояния есть, но прочитать его как JSON-объект не удалось."""
+
+
+def _load_state_file() -> dict | None:
+    """Читает DATA_FILE строго.
+
+    None — только если файла нет (первый запуск). Любая другая ошибка
+    чтения, битый JSON или корень не-объект — StateReadError: подменять
+    такой файл пустым состоянием и перезаписывать его нельзя.
+    """
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        raise StateReadError(f"{type(exc).__name__}: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise StateReadError(f"JSON root is {type(data).__name__}, expected object")
+    return data
+
+
 def _read_state() -> dict:
     state = _empty_state()
-    data = _read_json(DATA_FILE, None)
+    data = _load_state_file()
     needs_persist = True
 
     if isinstance(data, dict):
@@ -380,6 +404,21 @@ def _parse_amount(payload: dict) -> float | None:
 # ---------------------------------------------------------------------------
 # Маршруты
 # ---------------------------------------------------------------------------
+
+
+@app.errorhandler(StateReadError)
+def handle_state_read_error(exc: StateReadError):
+    """Файл состояния повреждён или недоступен: ничего не пишем, отвечаем 503."""
+    app.logger.error("Состояние смены не прочитано (%s): %s", DATA_FILE, exc)
+    return (
+        jsonify(
+            {
+                "error": "Файл состояния смены повреждён или недоступен. "
+                "Данные не изменены; нужна ручная проверка driver_state.json.",
+            }
+        ),
+        503,
+    )
 
 
 @app.get("/")
