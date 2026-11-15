@@ -1,6 +1,6 @@
-"""Браузерные регрессии TAXI-YANDEX-DAY-PR54-REWORK-01: форма «Итог дня».
+"""Браузерные регрессии формы «Итог дня» (TAXI-YANDEX-DAY-PR54-REWORK-01/-02).
 
-Проверяют два замечания P2 к PR #54:
+Проверяют замечания P2 к PR #54:
 
 * P2-1: пока GET выбранной даты не завершился (или завершился ошибкой), форма
   не даёт сохранить суммы прежней даты, а ответ GET не стирает молча правки
@@ -8,6 +8,10 @@
 * P2-2: запоздалый ответ PUT (успех или ошибка) не подменяет форму другой даты
   и не сбрасывает её: видимая дата, суммы и дата, под которой уходит PUT,
   совпадают.
+* P2-3 (REWORK-02, r4579368734): если экран закрыли и открыли на той же дате,
+  пока её PUT в пути, форма остаётся закрытой, пока запись не завершится и
+  форма не загрузит актуальный снимок. Ответ GET, начатый до завершения
+  записи, этот снимок не подменяет; повторное «Сохранить» не затирает сумму.
 
 Как устроено:
 
@@ -35,6 +39,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -72,6 +77,8 @@ TODAY = FIXED_TODAY.isoformat()
 BROWSER_NOW = "2026-01-15T09:00:00Z"
 DAY_A = "2026-01-10"
 DAY_B = "2026-01-11"
+# Последний сегмент пути GET /api/yandex-day (список сохранённых дней).
+SAVED_LIST = "yandex-day"
 FORBIDDEN_PORTS = {5000, 5001, 5002}
 
 FIELDS = ("card", "cash", "bonuses", "tips", "commission", "extra_services")
@@ -84,6 +91,8 @@ INPUT_B = {"card": "2500", "cash": "300", "bonuses": "", "tips": "40",
 INPUT_T = {"card": "700", "cash": "", "bonuses": "", "tips": "",
            "commission": "140", "extra_services": ""}
 EMPTY_FORM = {field: "" for field in FIELDS}
+# Новый день: только 1000 ₽ по карте (100000 копеек).
+INPUT_1000 = dict(EMPTY_FORM, card="1000")
 
 
 def _to_kopecks(text: str) -> int:
@@ -172,38 +181,43 @@ class _ApiGate:
 
     def __init__(self, test):
         self.test = test
-        self.rules = []  # (method, date) — удержать следующий такой запрос
-        self.held = []  # (method, date, route)
+        self.rules = []  # (method, date, prefetch) — удержать следующий такой запрос
+        self.held = []  # (method, date, route, response)
 
     def handle(self, route):
         request = route.request
         day = request.url.rsplit("/", 1)[-1]
-        key = (request.method, day)
-        if key in self.rules:
-            self.rules.remove(key)
-            self.held.append((request.method, day, route))
-            return
+        for rule in self.rules:
+            if rule[:2] == (request.method, day):
+                self.rules.remove(rule)
+                # prefetch: сервер отвечает сразу, а страница получает этот
+                # (возможно уже устаревший) ответ только по команде теста.
+                response = route.fetch() if rule[2] else None
+                self.held.append((request.method, day, route, response))
+                return
         route.fallback()
 
-    def hold(self, method, day):
-        self.rules.append((method, day))
+    def hold(self, method, day, *, prefetch=False):
+        self.rules.append((method, day, prefetch))
 
     def wait_held(self, method, day, timeout=5.0):
         deadline = time.monotonic() + timeout
-        while not any(m == method and d == day for m, d, _ in self.held):
+        while not any(m == method and d == day for m, d, _, _ in self.held):
             if time.monotonic() > deadline:
                 self.test.fail(f"запрос {method} {day} не дошёл до сети")
             # Пока ждём, Playwright доставляет события route.
             self.test.page.wait_for_timeout(10)
 
     def release(self, method, day, *, status=None, abort=False):
-        for index, (m, d, route) in enumerate(self.held):
+        for index, (m, d, route, response) in enumerate(self.held):
             if m == method and d == day:
                 del self.held[index]
                 break
         else:
             self.test.fail(f"нет удержанного запроса {method} {day}")
-        if abort:
+        if response is not None:
+            route.fulfill(response=response)
+        elif abort:
             route.abort("failed")
         elif status is not None:
             route.fulfill(
@@ -263,6 +277,8 @@ class YandexDayBrowserTests(unittest.TestCase):
         self.context.route("**/*", self._only_local)
         self.gate = _ApiGate(self)
         self.context.route("**/api/yandex-day/*", self.gate.handle)
+        # Список сохранённых дней: ключ в шлюзе — ("GET", SAVED_LIST).
+        self.context.route("**/api/yandex-day", self.gate.handle)
         self.page = self.context.new_page()
         self.page.set_default_timeout(5000)
         self.page.clock.set_fixed_time(BROWSER_NOW)
@@ -618,6 +634,170 @@ class YandexDayBrowserTests(unittest.TestCase):
         self.assertEqual(self.text("#toast"),
                          "Итог за 10.01.2026 не сохранён: Синтетический сбой сервера")
         self.assertEqual(self.stored(), {})
+
+    # --- P2-3: повторное открытие той же даты во время сохранения -----------
+
+    def saved_sum(self, day):
+        """Сумма в строке «Сохранённые дни» для даты (без пробелов) или None."""
+        return self.page.evaluate(
+            """day => {
+                const el = document.querySelector(
+                    `#yday-saved-list button[data-date='${day}'] .yday-saved__sum`);
+                return el ? el.textContent.replace(/\\s/g, '') : null;
+            }""",
+            day,
+        )
+
+    def proceeds(self):
+        return re.sub(r"\s", "", self.text("#yday-proceeds"))
+
+    def today_gets(self, start=0):
+        return [entry for entry in self.log()[start:]
+                if entry["method"] == "GET" and entry["path"] == f"/api/yandex-day/{TODAY}"]
+
+    def save_today_then_reopen(self, *, hold_list=False):
+        """Пустой день → 1000 ₽ → PUT удержан до записи → закрыть → открыть."""
+        self.open_screen()
+        self.assertIn("Новая запись", self.text("#yday-state"))
+        self.assertEqual(self.stored(), {})
+        self.fill_amounts(INPUT_1000)
+
+        self.gate.hold("PUT", TODAY)
+        self.page.click("#yday-save")
+        self.gate.wait_held("PUT", TODAY)
+        self.assertEqual(self.stored(), {}, "PUT должен быть удержан до записи")
+        put_index = len(self.log())
+
+        self.page.click("#yday-close")  # вопрос о несохранённых суммах — принять
+        self.assertFalse(self.is_visible("#yday-screen"))
+        if hold_list:
+            # Сервер отвечает сразу, пока PUT ещё не записан; ответ задержан.
+            self.gate.hold("GET", SAVED_LIST, prefetch=True)
+        self.page.click("#yday-btn")
+        if hold_list:
+            self.gate.wait_held("GET", SAVED_LIST)
+            self.wait_inflight(2)  # PUT и удержанный список
+        else:
+            self.wait_inflight(1)  # в пути только PUT
+        self.assertEqual(self.shown_date(), TODAY)
+        self.assert_locked("пока PUT этой же даты в пути, форму можно править или сохранить")
+        self.force_submit()
+        self.assertEqual(len(self.puts()), 1, "во время PUT ушёл второй PUT")
+        return put_index
+
+    def test_reopen_same_day_during_save_keeps_saved_amount(self):
+        put_index = self.save_today_then_reopen()
+
+        self.gate.release("PUT", TODAY)
+        self.wait_inflight(0)
+        self.assertEqual(self.stored(), {TODAY: _kopecks(INPUT_1000)})
+        self.assertEqual(
+            self.form_amounts(), INPUT_1000,
+            "после завершения PUT заново открытая форма той же даты не показывает "
+            "сохранённые 1 000 ₽",
+        )
+        self.assertIn("Сохранено", self.text("#yday-state"))
+        self.assertEqual(self.proceeds(), "1000₽")
+        self.assertEqual(self.text("#toast"), "Итог за 15.01.2026 сохранён")
+        self.assertIn("yday-save", self.editable_controls())
+        self.assertEqual(self.saved_sum(TODAY), "1000₽")
+
+        # Второе «Сохранить» без правок: уходит та же дата и те же 1 000 ₽.
+        self.page.click("#yday-save")
+        self.wait_inflight(0)
+        puts = self.puts()
+        self.assertEqual(len(puts), 2)
+        self.assertEqual(puts[-1]["path"], f"/api/yandex-day/{TODAY}")
+        self.assertEqual(
+            puts[-1]["body"]["amounts"], _api_amounts(INPUT_1000),
+            "второе «Сохранить» отправило не те суммы, что сохранены",
+        )
+        record = self.stored()[TODAY]
+        self.assertEqual(record["card"], 100000, "в хранилище не 1 000 ₽ после второго сохранения")
+        self.assertEqual(record, _kopecks(INPUT_1000))
+        self.assertEqual(self.form_amounts(), INPUT_1000)
+        self.assertEqual(self.proceeds(), "1000₽")
+        self.assertEqual(self.text("#toast"), "Итог дня обновлён")
+
+        # Снимок формы запрошен только после завершения записи.
+        gets = self.today_gets(put_index)
+        self.assertEqual(len(gets), 1, gets)
+
+    def test_reopen_same_day_refresh_failure_then_retry(self):
+        self.save_today_then_reopen()
+
+        # Отпускаем PUT; запрос актуального снимка удерживаем и роняем.
+        self.gate.hold("GET", TODAY)
+        self.gate.release("PUT", TODAY)
+        self.gate.wait_held("GET", TODAY)
+        self.assertEqual(self.stored(), {TODAY: _kopecks(INPUT_1000)})
+        self.assert_locked("до загрузки актуального снимка форму можно править или сохранить")
+        self.force_submit()
+        self.assertEqual(len(self.puts()), 1, "до загрузки снимка ушёл PUT")
+
+        self.gate.release("GET", TODAY, status=500)
+        self.wait_inflight(0)
+        self.assert_locked("после сбоя загрузки форму можно править или сохранить")
+        self.page.press("#yday-date", "Enter")
+        self.force_submit()
+        self.assertEqual(len(self.puts()), 1, "после сбоя загрузки ушёл PUT с пустыми суммами")
+        self.assertIn("Не удалось загрузить", self.text("#yday-state"))
+        self.assertIn("Синтетический сбой сервера", self.text("#yday-error"))
+        self.assertTrue(self.is_visible("#yday-retry"))
+        self.assertEqual(self.stored(), {TODAY: _kopecks(INPUT_1000)})
+
+        self.gate.hold("GET", TODAY)
+        self.page.click("#yday-retry")
+        self.gate.wait_held("GET", TODAY)
+        self.assert_locked("во время повторной загрузки форму можно править")
+        self.gate.release("GET", TODAY)
+        self.wait_inflight(0)
+        self.assertEqual(self.form_amounts(), INPUT_1000)
+        self.assertFalse(self.is_visible("#yday-error"))
+
+        self.page.click("#yday-save")
+        self.wait_inflight(0)
+        self.assertEqual(len(self.puts()), 2)
+        self.assertEqual(self.puts()[-1]["path"], f"/api/yandex-day/{TODAY}")
+        self.assertEqual(self.puts()[-1]["body"]["amounts"], _api_amounts(INPUT_1000))
+        self.assertEqual(self.stored(), {TODAY: _kopecks(INPUT_1000)})
+
+    def test_reopen_same_day_save_error_loads_stored_snapshot(self):
+        self.save_today_then_reopen()
+
+        self.gate.release("PUT", TODAY, status=500)
+        self.wait_inflight(0)
+        self.assertEqual(self.text("#toast"),
+                         "Итог за 15.01.2026 не сохранён: Синтетический сбой сервера")
+        self.assertFalse(self.is_visible("#yday-error"))
+        self.assertEqual(self.stored(), {})
+        self.assertEqual(self.form_amounts(), EMPTY_FORM)
+        self.assertIn("Новая запись", self.text("#yday-state"))
+        self.assertIn("yday-save", self.editable_controls())
+
+        self.fill_amounts(INPUT_1000)
+        self.page.click("#yday-save")
+        self.wait_inflight(0)
+        self.assertEqual(self.text("#toast"), "Итог дня сохранён")
+        self.assertEqual(self.stored(), {TODAY: _kopecks(INPUT_1000)})
+
+    def test_stale_saved_list_does_not_replace_fresh_list(self):
+        # Список, запрошенный при повторном открытии до завершения записи,
+        # не должен потом подменить список, загруженный после записи.
+        self.save_today_then_reopen(hold_list=True)
+
+        self.gate.release("PUT", TODAY)
+        self.wait_inflight(1)  # остался только старый запрос списка
+        self.assertEqual(self.saved_sum(TODAY), "1000₽")
+
+        self.gate.release("GET", SAVED_LIST)
+        self.wait_inflight(0)
+        self.assertEqual(
+            self.saved_sum(TODAY), "1000₽",
+            "ответ списка, начатый до завершения записи, стёр сохранённый день",
+        )
+        self.assertEqual(self.form_amounts(), INPUT_1000)
+        self.assertEqual(self.stored(), {TODAY: _kopecks(INPUT_1000)})
 
     # --- обычная работа сохраняется ------------------------------------------
 

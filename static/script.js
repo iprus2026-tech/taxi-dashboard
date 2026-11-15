@@ -1552,12 +1552,22 @@ const MOSCOW_OFFSET_MS = 3 * 60 * 60 * 1000;
 // "error" (GET не удался — правка и сохранение закрыты до повторной загрузки).
 // loadSeq — номер «сеанса формы»: растёт при каждой загрузке даты и при закрытии
 // экрана; запоздалые ответы GET и PUT сверяют его и не трогают чужую форму.
+// pendingWrite — PUT в пути: { date, settled } (settled выполняется, когда PUT
+// завершился успехом или ошибкой). Форма той же даты не запрашивает снимок,
+// пока запись не завершилась: иначе GET вернёт снимок до записи.
+// writeGens — дата → счётчик, растёт при начале и при завершении PUT этой даты:
+// ответ GET, начатого при другом значении, мог быть вычислен до записи и в
+// форму не попадает (GET повторяется).
+// savedSeq — номер запроса списка сохранённых дней: применяется только последний.
 const yday = {
   date: null,
   status: "idle",
   dirty: false,
   saving: false,
   loadSeq: 0,
+  pendingWrite: null,
+  writeGens: new Map(),
+  savedSeq: 0,
   returnFocus: null,
   retryButton: null,
 };
@@ -1710,6 +1720,14 @@ function updateYdayControls() {
   }
 }
 
+function ydayWriteGen(isoDate) {
+  return yday.writeGens.get(isoDate) || 0;
+}
+
+function bumpYdayWriteGen(isoDate) {
+  yday.writeGens.set(isoDate, ydayWriteGen(isoDate) + 1);
+}
+
 async function loadYdayDate(isoDate) {
   const seq = ++yday.loadSeq;
   yday.date = isoDate;
@@ -1722,8 +1740,24 @@ async function loadYdayDate(isoDate) {
   updateYdayControls();
 
   try {
-    const data = await requestJSON(`/api/yandex-day/${encodeURIComponent(isoDate)}`);
-    if (seq !== yday.loadSeq) return;
+    let data = null;
+    for (;;) {
+      const pending = yday.pendingWrite;
+      if (pending && pending.date === isoDate) {
+        // Эту дату ещё сохраняют (например, экран закрыли и открыли во время
+        // PUT): форма закрыта, снимок запрашиваем только после завершения записи.
+        setYdayState("Ждём завершения сохранения…");
+        await pending.settled;
+        if (seq !== yday.loadSeq) return;
+        setYdayState("Загружаем…");
+        continue;
+      }
+      const gen = ydayWriteGen(isoDate);
+      data = await requestJSON(`/api/yandex-day/${encodeURIComponent(isoDate)}`);
+      if (seq !== yday.loadSeq) return;
+      // Пока шёл GET, запись этой даты началась или завершилась: ответ мог устареть.
+      if (gen === ydayWriteGen(isoDate)) break;
+    }
     if (!data || data.date !== isoDate || !("snapshot" in data)) {
       throw new Error("Сервер вернул неожиданный ответ");
     }
@@ -1773,10 +1807,15 @@ function renderYdaySaved(days) {
 }
 
 async function loadYdaySaved() {
+  // Ответ более раннего запроса (например, начатого до завершения записи)
+  // не подменяет список, запрошенный позже.
+  const seq = ++yday.savedSeq;
   try {
     const data = await requestJSON("/api/yandex-day");
+    if (seq !== yday.savedSeq) return;
     renderYdaySaved(data && data.days);
   } catch (error) {
+    if (seq !== yday.savedSeq) return;
     renderYdaySaved([]);
     if (els.ydaySavedEmpty) {
       els.ydaySavedEmpty.textContent = `Список не загружен: ${error.message}`;
@@ -1849,6 +1888,12 @@ async function saveYday(event) {
 
   const formSeq = yday.loadSeq;
   yday.saving = true;
+  let settleWrite = () => {};
+  const settled = new Promise((resolve) => {
+    settleWrite = resolve;
+  });
+  yday.pendingWrite = { date: isoDate, settled };
+  bumpYdayWriteGen(isoDate);
   updateYdayControls();
 
   let data = null;
@@ -1865,9 +1910,16 @@ async function saveYday(event) {
     failure = error;
   }
   yday.saving = false;
+  yday.pendingWrite = null;
+  bumpYdayWriteGen(isoDate);
+  // Форма, открытая заново на этой дате, продолжит загрузку уже после того,
+  // как этот обработчик отработает: снимок она запросит после записи.
+  settleWrite();
 
   // Пока шёл PUT, экран могли закрыть и открыть заново: тогда ответ относится
   // к другому сеансу формы и не трогает её, а результат сообщается уведомлением.
+  // Если новая форма открыта на той же дате, она ждёт эту запись и затем сама
+  // загружает актуальный снимок (loadYdayDate), а до этого закрыта для правки.
   const current = formSeq === yday.loadSeq && yday.date === isoDate;
   if (failure) {
     if (current) setYdayError(`Не сохранено: ${failure.message}`);
