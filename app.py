@@ -5,7 +5,9 @@
 
 Приложение поднимается на http://127.0.0.1:5000
 Текущее состояние хранится в driver_state.json, завершённые смены —
-в shift_history.json (оба файла создаются автоматически).
+в shift_history.json (оба файла создаются автоматически). Дневные итоги
+из Яндекс Про, введённые вручную, хранятся отдельно в yandex_day.json и
+со сменами не смешиваются.
 """
 
 from __future__ import annotations
@@ -13,15 +15,18 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
+import tempfile
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from flask import Flask, jsonify, render_template, request
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(BASE_DIR, "driver_state.json")
 HISTORY_FILE = os.path.join(BASE_DIR, "shift_history.json")
+YANDEX_DAY_FILE = os.path.join(BASE_DIR, "yandex_day.json")
 
 app = Flask(__name__)
 
@@ -44,6 +49,8 @@ MAX_AMOUNT = 10_000_000.0
 EARTH_RADIUS_M = 6_371_000.0
 
 _state_lock = threading.RLock()
+# Отдельная блокировка дневных итогов: они не связаны с состоянием смены.
+_yandex_day_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +409,254 @@ def _parse_amount(payload: dict) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Итог дня из Яндекс Про: ручная сверка, отдельное хранилище
+# ---------------------------------------------------------------------------
+#
+# Водитель переписывает дневной отчёт Яндекс Про с планшета. Снимок хранится
+# по календарной дате Москвы в yandex_day.json и никак не связан со сменой:
+# он не добавляет заказов, не меняет выручку смены и не попадает в историю.
+# Все суммы хранятся и считаются в целых копейках.
+
+# Москва живёт по UTC+3 без перехода на летнее время с 2014 года.
+MOSCOW_TZ = timezone(timedelta(hours=3), "MSK")
+
+YANDEX_DAY_STORE_VERSION = 1
+YANDEX_DAY_MIN_DATE = date(2000, 1, 1)
+
+YANDEX_DAY_KINDS = {
+    "partial": "Промежуточный срез",
+    "final": "Итог дня",
+}
+
+# Поступления: прибавляются к выручке дня.
+YANDEX_DAY_INCOME_FIELDS = ("card", "cash", "bonuses", "tips")
+# Удержания сервиса: вычитаются из выручки дня.
+YANDEX_DAY_DEDUCTION_FIELDS = ("commission", "extra_services")
+YANDEX_DAY_FIELDS = YANDEX_DAY_INCOME_FIELDS + YANDEX_DAY_DEDUCTION_FIELDS
+
+YANDEX_DAY_FIELD_LABELS = {
+    "card": "Картой",
+    "cash": "Наличными",
+    "bonuses": "Бонусы",
+    "tips": "Чаевые",
+    "commission": "Комиссия сервиса с НДС",
+    "extra_services": "Дополнительные услуги",
+}
+
+# Не больше 10 млн ₽ в одном поле, как и у заказов и расходов (MAX_AMOUNT).
+YANDEX_DAY_MAX_KOPECKS = 1_000_000_000
+
+_DAY_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_AMOUNT_RE = re.compile(r"([0-9]{1,8})(?:[.,]([0-9]{1,2}))?")
+
+
+class YandexDayInputError(ValueError):
+    """Некорректная дата или сумма во входных данных; ничего не пишется."""
+
+    def __init__(self, message: str, field: str | None = None):
+        super().__init__(message)
+        self.field = field
+
+
+class YandexDayStoreError(Exception):
+    """Файл дневных итогов есть, но прочитать или разобрать его нельзя."""
+
+
+class YandexDayWriteError(Exception):
+    """Новый файл дневных итогов записать не удалось; старый не тронут."""
+
+
+def _moscow_today() -> date:
+    return datetime.now(MOSCOW_TZ).date()
+
+
+def _parse_yandex_day(value) -> str:
+    """Проверяет календарную дату вида ГГГГ-ММ-ДД, не позже сегодня по Москве."""
+    if not isinstance(value, str) or not _DAY_RE.fullmatch(value):
+        raise YandexDayInputError("Дата должна быть в формате ГГГГ-ММ-ДД.", "date")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        raise YandexDayInputError("Такой календарной даты нет.", "date") from None
+    if parsed < YANDEX_DAY_MIN_DATE:
+        raise YandexDayInputError("Дата слишком ранняя.", "date")
+    if parsed > _moscow_today():
+        raise YandexDayInputError("Дата ещё не наступила по московскому времени.", "date")
+    return value
+
+
+def _parse_kopecks(value, field: str) -> int:
+    """Неотрицательная сумма в рублях, до двух знаков после запятой или точки.
+
+    Возвращает точное число копеек без float-арифметики.
+    """
+    label = YANDEX_DAY_FIELD_LABELS[field]
+    if isinstance(value, bool) or value is None:
+        text = None
+    elif isinstance(value, int):
+        text = str(value) if value >= 0 else None
+    elif isinstance(value, float):
+        # repr даёт кратчайшую запись числа: 10.5 → "10.5", 0.1 + 0.2 → длинная
+        # дробь, которая не пройдёт проверку двух знаков.
+        text = repr(value) if math.isfinite(value) and value >= 0 else None
+    elif isinstance(value, str):
+        text = value.strip()
+    else:
+        text = None
+
+    match = _AMOUNT_RE.fullmatch(text) if text is not None else None
+    if match is None:
+        raise YandexDayInputError(
+            f"«{label}»: нужна неотрицательная сумма, не больше двух знаков после запятой.",
+            field,
+        )
+
+    rubles, fraction = match.group(1), match.group(2) or ""
+    kopecks = int(rubles) * 100 + int(fraction.ljust(2, "0"))
+    if kopecks > YANDEX_DAY_MAX_KOPECKS:
+        raise YandexDayInputError(f"«{label}»: сумма больше 10 000 000 ₽.", field)
+    return kopecks
+
+
+def _parse_yandex_day_payload(payload) -> tuple[str, dict]:
+    """Проверяет тело запроса целиком до любого обращения к хранилищу."""
+    if not isinstance(payload, dict):
+        raise YandexDayInputError("Нужен JSON-объект с полями kind и amounts.")
+
+    kind = payload.get("kind")
+    if kind not in YANDEX_DAY_KINDS:
+        raise YandexDayInputError(
+            "Укажите, это промежуточный срез (partial) или итог дня (final).", "kind"
+        )
+
+    raw_amounts = payload.get("amounts")
+    if not isinstance(raw_amounts, dict):
+        raise YandexDayInputError("Нужен объект amounts со всеми суммами.", "amounts")
+
+    unknown = sorted(key for key in raw_amounts if key not in YANDEX_DAY_FIELDS)
+    if unknown:
+        raise YandexDayInputError(f"Неизвестные поля сумм: {', '.join(map(str, unknown))}.", "amounts")
+
+    amounts = {}
+    for field in YANDEX_DAY_FIELDS:
+        if field not in raw_amounts:
+            raise YandexDayInputError(
+                f"«{YANDEX_DAY_FIELD_LABELS[field]}»: сумма не указана.", field
+            )
+        amounts[field] = _parse_kopecks(raw_amounts[field], field)
+
+    return kind, amounts
+
+
+def _format_kopecks(kopecks: int) -> str:
+    sign = "-" if kopecks < 0 else ""
+    kopecks = abs(kopecks)
+    return f"{sign}{kopecks // 100}.{kopecks % 100:02d}"
+
+
+def _validate_yandex_entry(key, entry) -> None:
+    if not isinstance(key, str) or not _DAY_RE.fullmatch(key):
+        raise YandexDayStoreError(f"bad date key {key!r}")
+    try:
+        date.fromisoformat(key)
+    except ValueError:
+        raise YandexDayStoreError(f"bad date key {key!r}") from None
+    if not isinstance(entry, dict):
+        raise YandexDayStoreError(f"{key}: entry is {type(entry).__name__}, expected object")
+    if entry.get("date") != key:
+        raise YandexDayStoreError(f"{key}: date field does not match key")
+    if entry.get("kind") not in YANDEX_DAY_KINDS:
+        raise YandexDayStoreError(f"{key}: bad kind")
+    if not isinstance(entry.get("updated_at"), str):
+        raise YandexDayStoreError(f"{key}: bad updated_at")
+    if "created_at" in entry and not isinstance(entry["created_at"], str):
+        raise YandexDayStoreError(f"{key}: bad created_at")
+    amounts = entry.get("amounts_kopecks")
+    if not isinstance(amounts, dict):
+        raise YandexDayStoreError(f"{key}: amounts_kopecks is not an object")
+    for field in YANDEX_DAY_FIELDS:
+        value = amounts.get(field)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not 0 <= value <= YANDEX_DAY_MAX_KOPECKS
+        ):
+            raise YandexDayStoreError(f"{key}: bad amount {field}")
+
+
+def _load_yandex_store() -> dict | None:
+    """Читает YANDEX_DAY_FILE строго.
+
+    None — только если файла нет (ещё ничего не сохраняли). Ошибка чтения,
+    битый JSON, чужая версия или неверная запись — YandexDayStoreError:
+    такой файл нельзя подменять пустым и перезаписывать.
+    """
+    try:
+        with open(YANDEX_DAY_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        raise YandexDayStoreError(f"{type(exc).__name__}: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise YandexDayStoreError(f"JSON root is {type(data).__name__}, expected object")
+    version = data.get("version")
+    if isinstance(version, bool) or version != YANDEX_DAY_STORE_VERSION:
+        raise YandexDayStoreError(f"unsupported version {version!r}")
+    days = data.get("days")
+    if not isinstance(days, dict):
+        raise YandexDayStoreError("days is not an object")
+    for key, entry in days.items():
+        _validate_yandex_entry(key, entry)
+    return data
+
+
+def _write_yandex_store(data: dict) -> None:
+    """Атомарная замена: временный файл в том же каталоге, fsync, os.replace."""
+    directory = os.path.dirname(YANDEX_DAY_FILE) or "."
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(prefix=".yandex_day.", suffix=".tmp", dir=directory)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2, sort_keys=True)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_path, YANDEX_DAY_FILE)
+        tmp_path = None
+    except OSError as exc:
+        raise YandexDayWriteError(f"{type(exc).__name__}: {exc}") from exc
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+def _yandex_snapshot_view(entry: dict) -> dict:
+    """Ответ API по одной дате: суммы в копейках и строками, выручка дня."""
+    kopecks = {field: entry["amounts_kopecks"][field] for field in YANDEX_DAY_FIELDS}
+    income = sum(kopecks[field] for field in YANDEX_DAY_INCOME_FIELDS)
+    deductions = sum(kopecks[field] for field in YANDEX_DAY_DEDUCTION_FIELDS)
+    proceeds = income - deductions
+    return {
+        "date": entry["date"],
+        "kind": entry["kind"],
+        "kind_label": YANDEX_DAY_KINDS[entry["kind"]],
+        "amounts_kopecks": kopecks,
+        "amounts": {field: _format_kopecks(value) for field, value in kopecks.items()},
+        "income_kopecks": income,
+        "deductions_kopecks": deductions,
+        "proceeds_kopecks": proceeds,
+        "proceeds": _format_kopecks(proceeds),
+        "created_at": entry.get("created_at") or entry["updated_at"],
+        "updated_at": entry["updated_at"],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Маршруты
 # ---------------------------------------------------------------------------
 
@@ -638,6 +893,113 @@ def api_finish_shift():
         _write_state(state)
 
     return jsonify({"state": state, "archived": archived})
+
+
+# ---------------------------------------------------------------------------
+# Маршруты: итог дня из Яндекс Про
+# ---------------------------------------------------------------------------
+
+
+@app.errorhandler(YandexDayInputError)
+def handle_yandex_day_input_error(exc: YandexDayInputError):
+    return jsonify({"error": str(exc), "field": exc.field}), 400
+
+
+@app.errorhandler(YandexDayStoreError)
+def handle_yandex_day_store_error(exc: YandexDayStoreError):
+    """Файл дневных итогов повреждён или недоступен: ничего не пишем, 503."""
+    app.logger.error("Дневные итоги не прочитаны (%s): %s", YANDEX_DAY_FILE, exc)
+    return (
+        jsonify(
+            {
+                "error": "Файл дневных итогов Яндекс Про повреждён или недоступен. "
+                "Данные не изменены; нужна ручная проверка yandex_day.json.",
+                "store_state": "damaged",
+            }
+        ),
+        503,
+    )
+
+
+@app.errorhandler(YandexDayWriteError)
+def handle_yandex_day_write_error(exc: YandexDayWriteError):
+    app.logger.error("Дневной итог не сохранён (%s): %s", YANDEX_DAY_FILE, exc)
+    return (
+        jsonify(
+            {
+                "error": "Не удалось сохранить итог дня: ошибка записи на диск. "
+                "Ранее сохранённые данные не изменены.",
+                "store_state": "write_failed",
+            }
+        ),
+        500,
+    )
+
+
+@app.get("/api/yandex-day")
+def api_yandex_days():
+    """Все сохранённые дневные итоги, новые даты сверху."""
+    with _yandex_day_lock:
+        store = _load_yandex_store()
+
+    days = store["days"] if store is not None else {}
+    snapshots = [_yandex_snapshot_view(days[key]) for key in sorted(days, reverse=True)]
+    return jsonify(
+        {
+            "store_state": "ok" if store is not None else "missing",
+            "today": _moscow_today().isoformat(),
+            "days": snapshots,
+        }
+    )
+
+
+@app.get("/api/yandex-day/<day>")
+def api_yandex_day(day: str):
+    """Дневной итог за одну дату или null, если за неё ещё ничего не сохраняли."""
+    day = _parse_yandex_day(day)
+    with _yandex_day_lock:
+        store = _load_yandex_store()
+
+    entry = store["days"].get(day) if store is not None else None
+    return jsonify(
+        {
+            "store_state": "ok" if store is not None else "missing",
+            "date": day,
+            "snapshot": _yandex_snapshot_view(entry) if entry is not None else None,
+        }
+    )
+
+
+@app.put("/api/yandex-day/<day>")
+def api_save_yandex_day(day: str):
+    """Сохраняет или заменяет дневной итог за одну дату; остальные даты не трогает."""
+    day = _parse_yandex_day(day)
+    kind, amounts = _parse_yandex_day_payload(request.get_json(silent=True))
+
+    with _yandex_day_lock:
+        store = _load_yandex_store()
+        if store is None:
+            store = {"version": YANDEX_DAY_STORE_VERSION, "days": {}}
+
+        previous = store["days"].get(day)
+        now = _now_iso()
+        entry = {
+            "date": day,
+            "kind": kind,
+            "amounts_kopecks": amounts,
+            "created_at": (previous.get("created_at") or previous["updated_at"]) if previous else now,
+            "updated_at": now,
+        }
+        store["days"][day] = entry
+        _write_yandex_store(store)
+
+    return jsonify(
+        {
+            "store_state": "ok",
+            "replaced": previous is not None,
+            "snapshot": _yandex_snapshot_view(entry),
+        }
+    )
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@
    - пробег: восстанавливается с сервера, точки каждые 75 м
    - деньги: заказы, расходы, чистая прибыль
    - завершение смены с сохранением итогов в историю
+   - итог дня из Яндекс Про: ручная сверка, отдельно от смены
    ========================================================================== */
 
 "use strict";
@@ -116,6 +117,17 @@ const els = {
   amountHint: document.getElementById("amount-hint"),
   keypad: document.getElementById("keypad"),
   moneySubmit: document.getElementById("money-submit"),
+  ydayButton: document.getElementById("yday-btn"),
+  ydayScreen: document.getElementById("yday-screen"),
+  ydayClose: document.getElementById("yday-close"),
+  ydayForm: document.getElementById("yday-form"),
+  ydayDate: document.getElementById("yday-date"),
+  ydayState: document.getElementById("yday-state"),
+  ydayProceeds: document.getElementById("yday-proceeds"),
+  ydayError: document.getElementById("yday-error"),
+  ydaySave: document.getElementById("yday-save"),
+  ydaySavedList: document.getElementById("yday-saved-list"),
+  ydaySavedEmpty: document.getElementById("yday-saved-empty"),
 };
 
 const emptyShift = () => ({
@@ -1521,6 +1533,483 @@ function closeHistory() {
 }
 
 /* --------------------------------------------------------------------------
+   Итог дня из Яндекс Про
+   Ручная сверка с дневным отчётом. Хранится отдельно от смены: не создаёт
+   заказов и не меняет выручку. Все суммы считаются в целых копейках.
+   -------------------------------------------------------------------------- */
+
+const YDAY_INCOME_FIELDS = ["card", "cash", "bonuses", "tips"];
+const YDAY_DEDUCTION_FIELDS = ["commission", "extra_services"];
+const YDAY_FIELDS = [...YDAY_INCOME_FIELDS, ...YDAY_DEDUCTION_FIELDS];
+const YDAY_AMOUNT_RE = /^(\d{1,8})(?:[.,](\d{1,2}))?$/;
+const YDAY_MAX_KOPECKS = 1000000000;
+const YDAY_KIND_LABELS = { partial: "Промежуточный срез", final: "Итог дня" };
+const MOSCOW_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+// Состояние формы дневного итога.
+// status: "idle" (экран закрыт), "loading" (идёт GET выбранной даты),
+// "ready" (дата загружена успешно — снимок или подтверждённая новая запись),
+// "error" (GET не удался — правка и сохранение закрыты до повторной загрузки).
+// loadSeq — номер «сеанса формы»: растёт при каждой загрузке даты и при закрытии
+// экрана; запоздалые ответы GET и PUT сверяют его и не трогают чужую форму.
+// pendingWrite — PUT в пути: { date, settled } (settled выполняется, когда PUT
+// завершился успехом или ошибкой). Форма той же даты не запрашивает снимок,
+// пока запись не завершилась: иначе GET вернёт снимок до записи.
+// writeGens — дата → счётчик, растёт при начале и при завершении PUT этой даты:
+// ответ GET, начатого при другом значении, мог быть вычислен до записи и в
+// форму не попадает (GET повторяется).
+// savedSeq — номер запроса списка сохранённых дней: применяется только последний.
+const yday = {
+  date: null,
+  status: "idle",
+  dirty: false,
+  saving: false,
+  loadSeq: 0,
+  pendingWrite: null,
+  writeGens: new Map(),
+  savedSeq: 0,
+  returnFocus: null,
+  retryButton: null,
+};
+
+function moscowToday() {
+  // Москва живёт по UTC+3 без перехода на летнее время.
+  return new Date(Date.now() + MOSCOW_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function formatDayLabel(isoDate) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || "");
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : String(isoDate || "");
+}
+
+/** Сумма из поля ввода в копейках: пусто → 0, запятая или точка, до 2 знаков. */
+function parseKopecks(raw) {
+  const text = String(raw || "").replace(/[\s ]/g, "");
+  if (text === "") return 0;
+  const match = YDAY_AMOUNT_RE.exec(text);
+  if (!match) return null;
+  const kopecks = Number(match[1]) * 100 + Number((match[2] || "").padEnd(2, "0"));
+  return kopecks <= YDAY_MAX_KOPECKS ? kopecks : null;
+}
+
+function kopecksToInput(kopecks) {
+  const value = Number(kopecks) || 0;
+  if (value === 0) return "";
+  const rubles = Math.floor(value / 100);
+  const rest = value % 100;
+  return rest === 0 ? String(rubles) : `${rubles},${String(rest).padStart(2, "0")}`;
+}
+
+function kopecksToApi(kopecks) {
+  return `${Math.floor(kopecks / 100)}.${String(kopecks % 100).padStart(2, "0")}`;
+}
+
+function formatKopecks(kopecks) {
+  return formatMoney(Number(kopecks) / 100);
+}
+
+function ydayAmountInput(field) {
+  return document.getElementById(`yday-${field}`);
+}
+
+function ydayKind() {
+  const checked = els.ydayForm && els.ydayForm.querySelector('input[name="kind"]:checked');
+  return checked ? checked.value : "partial";
+}
+
+function setYdayKind(kind) {
+  if (!els.ydayForm) return;
+  for (const radio of els.ydayForm.querySelectorAll('input[name="kind"]')) {
+    radio.checked = radio.value === kind;
+  }
+}
+
+function setYdayError(message) {
+  if (!els.ydayError) return;
+  els.ydayError.textContent = message || "";
+  els.ydayError.hidden = !message;
+}
+
+function setYdayState(text) {
+  if (els.ydayState) els.ydayState.textContent = text;
+}
+
+/** Читает все суммы формы. invalid — поля, которые не удалось разобрать. */
+function readYdayAmounts() {
+  const amounts = {};
+  const invalid = [];
+  for (const field of YDAY_FIELDS) {
+    const input = ydayAmountInput(field);
+    const kopecks = parseKopecks(input ? input.value : "");
+    if (input) input.setAttribute("aria-invalid", kopecks === null ? "true" : "false");
+    if (kopecks === null) invalid.push(field);
+    amounts[field] = kopecks;
+  }
+  return { amounts, invalid };
+}
+
+function updateYdayProceeds() {
+  if (!els.ydayProceeds) return;
+  const { amounts, invalid } = readYdayAmounts();
+  if (invalid.length > 0) {
+    els.ydayProceeds.textContent = "—";
+    els.ydayProceeds.dataset.sign = "";
+    return;
+  }
+  const income = YDAY_INCOME_FIELDS.reduce((sum, field) => sum + amounts[field], 0);
+  const deductions = YDAY_DEDUCTION_FIELDS.reduce((sum, field) => sum + amounts[field], 0);
+  const proceeds = income - deductions;
+  els.ydayProceeds.textContent = formatKopecks(proceeds);
+  els.ydayProceeds.dataset.sign = proceeds < 0 ? "negative" : "";
+}
+
+function describeSnapshot(snapshot) {
+  const kind = snapshot.kind_label || YDAY_KIND_LABELS[snapshot.kind] || "";
+  const updated = new Date(snapshot.updated_at);
+  const when = Number.isNaN(updated.getTime())
+    ? ""
+    : ` · изменено ${updated.toLocaleString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })}`;
+  return `Сохранено: ${kind}${when}`;
+}
+
+function fillYdayForm(snapshot) {
+  for (const field of YDAY_FIELDS) {
+    const input = ydayAmountInput(field);
+    if (!input) continue;
+    input.value = snapshot ? kopecksToInput(snapshot.amounts_kopecks[field]) : "";
+    input.setAttribute("aria-invalid", "false");
+  }
+  setYdayKind(snapshot ? snapshot.kind : "partial");
+  setYdayState(snapshot ? describeSnapshot(snapshot) : "Новая запись: за эту дату ещё ничего не сохранено");
+  yday.dirty = false;
+  updateYdayProceeds();
+}
+
+/**
+ * Править и сохранять можно только успешно загруженную дату и только когда
+ * не идёт сохранение. Пока сохранение не завершилось, дату не переключить:
+ * ответ PUT всегда относится к той дате, что видна в форме.
+ */
+function updateYdayControls() {
+  const editable = yday.status === "ready" && !yday.saving;
+  if (els.ydayForm) {
+    for (const input of els.ydayForm.querySelectorAll('.yday-amount, input[name="kind"]')) {
+      input.disabled = !editable;
+    }
+    els.ydayForm.setAttribute("aria-busy", yday.status === "loading" || yday.saving ? "true" : "false");
+  }
+  if (els.ydaySave) els.ydaySave.disabled = !editable;
+  if (els.ydayDate) els.ydayDate.disabled = yday.saving;
+  if (els.ydaySavedList) {
+    for (const button of els.ydaySavedList.querySelectorAll("button[data-date]")) {
+      button.disabled = yday.saving;
+    }
+  }
+  const retry = yday.retryButton;
+  if (retry) {
+    const show = yday.status === "error";
+    retry.hidden = !show;
+    // .btn задаёт display, поэтому одного атрибута hidden мало.
+    retry.style.display = show ? "" : "none";
+    retry.disabled = yday.saving;
+  }
+}
+
+function ydayWriteGen(isoDate) {
+  return yday.writeGens.get(isoDate) || 0;
+}
+
+function bumpYdayWriteGen(isoDate) {
+  yday.writeGens.set(isoDate, ydayWriteGen(isoDate) + 1);
+}
+
+async function loadYdayDate(isoDate) {
+  const seq = ++yday.loadSeq;
+  yday.date = isoDate;
+  yday.status = "loading";
+  if (els.ydayDate) els.ydayDate.value = isoDate;
+  setYdayError("");
+  // Суммы прежней даты не остаются в форме и не могут уйти под новой датой.
+  fillYdayForm(null);
+  setYdayState("Загружаем…");
+  updateYdayControls();
+
+  try {
+    let data = null;
+    for (;;) {
+      const pending = yday.pendingWrite;
+      if (pending && pending.date === isoDate) {
+        // Эту дату ещё сохраняют (например, экран закрыли и открыли во время
+        // PUT): форма закрыта, снимок запрашиваем только после завершения записи.
+        setYdayState("Ждём завершения сохранения…");
+        await pending.settled;
+        if (seq !== yday.loadSeq) return;
+        setYdayState("Загружаем…");
+        continue;
+      }
+      const gen = ydayWriteGen(isoDate);
+      data = await requestJSON(`/api/yandex-day/${encodeURIComponent(isoDate)}`);
+      if (seq !== yday.loadSeq) return;
+      // Пока шёл GET, запись этой даты началась или завершилась: ответ мог устареть.
+      if (gen === ydayWriteGen(isoDate)) break;
+    }
+    if (!data || data.date !== isoDate || !("snapshot" in data)) {
+      throw new Error("Сервер вернул неожиданный ответ");
+    }
+    yday.status = "ready";
+    fillYdayForm(data.snapshot);
+  } catch (error) {
+    if (seq !== yday.loadSeq) return;
+    yday.status = "error";
+    fillYdayForm(null);
+    setYdayState("Не удалось загрузить запись за эту дату");
+    setYdayError(error.message);
+  }
+  updateYdayControls();
+}
+
+function retryYdayLoad() {
+  if (yday.saving || yday.status !== "error" || !yday.date) return;
+  loadYdayDate(yday.date);
+}
+
+function renderYdaySaved(days) {
+  if (!els.ydaySavedList) return;
+  els.ydaySavedList.replaceChildren();
+  const list = Array.isArray(days) ? days : [];
+  if (els.ydaySavedEmpty) els.ydaySavedEmpty.hidden = list.length > 0;
+
+  for (const snapshot of list) {
+    const item = makeEl("li", "yday-saved__item");
+    const button = makeEl("button", "yday-saved__btn");
+    button.type = "button";
+    button.dataset.date = snapshot.date;
+    if (snapshot.date === yday.date) button.setAttribute("aria-current", "true");
+
+    button.append(
+      makeEl("span", "yday-saved__date", formatDayLabel(snapshot.date)),
+      makeEl(
+        "span",
+        `yday-saved__kind yday-saved__kind--${snapshot.kind === "final" ? "final" : "partial"}`,
+        snapshot.kind_label || YDAY_KIND_LABELS[snapshot.kind] || ""
+      ),
+      makeEl("span", "yday-saved__sum", formatKopecks(snapshot.proceeds_kopecks))
+    );
+    button.disabled = yday.saving;
+    item.append(button);
+    els.ydaySavedList.append(item);
+  }
+}
+
+async function loadYdaySaved() {
+  // Ответ более раннего запроса (например, начатого до завершения записи)
+  // не подменяет список, запрошенный позже.
+  const seq = ++yday.savedSeq;
+  try {
+    const data = await requestJSON("/api/yandex-day");
+    if (seq !== yday.savedSeq) return;
+    renderYdaySaved(data && data.days);
+  } catch (error) {
+    if (seq !== yday.savedSeq) return;
+    renderYdaySaved([]);
+    if (els.ydaySavedEmpty) {
+      els.ydaySavedEmpty.textContent = `Список не загружен: ${error.message}`;
+      els.ydaySavedEmpty.hidden = false;
+    }
+  }
+}
+
+function confirmDiscardYday() {
+  return !yday.dirty || window.confirm("Несохранённые суммы будут потеряны. Продолжить?");
+}
+
+function switchYdayDate(isoDate) {
+  if (yday.saving) {
+    // Пока идёт сохранение, видимая дата должна совпадать с отправленной.
+    if (els.ydayDate) els.ydayDate.value = yday.date || "";
+    return;
+  }
+  if (!isoDate) return;
+  if (isoDate === yday.date) {
+    // Повторный выбор той же даты после неудачной загрузки — это повтор.
+    if (yday.status === "error") loadYdayDate(isoDate);
+    return;
+  }
+  if (!confirmDiscardYday()) {
+    if (els.ydayDate) els.ydayDate.value = yday.date || "";
+    return;
+  }
+  loadYdayDate(isoDate);
+  if (els.ydaySavedList) {
+    for (const button of els.ydaySavedList.querySelectorAll("button[data-date]")) {
+      if (button.dataset.date === isoDate) button.setAttribute("aria-current", "true");
+      else button.removeAttribute("aria-current");
+    }
+  }
+}
+
+async function saveYday(event) {
+  event.preventDefault();
+  // Enter в поле даты отправляет форму и во время загрузки: сохранять можно
+  // только успешно загруженную дату.
+  if (yday.saving || yday.status !== "ready") return;
+  setYdayError("");
+
+  const isoDate = yday.date || "";
+  const shownDate = els.ydayDate ? els.ydayDate.value : isoDate;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate) || shownDate !== isoDate) {
+    setYdayError("Выберите дату.");
+    if (els.ydayDate) els.ydayDate.focus();
+    return;
+  }
+  if (isoDate > moscowToday()) {
+    setYdayError("Эта дата ещё не наступила по московскому времени.");
+    if (els.ydayDate) els.ydayDate.focus();
+    return;
+  }
+
+  const { amounts, invalid } = readYdayAmounts();
+  if (invalid.length > 0) {
+    setYdayError(
+      "Проверьте суммы: только цифры, не больше двух знаков после запятой, не больше 10 000 000 ₽."
+    );
+    const first = ydayAmountInput(invalid[0]);
+    if (first) first.focus();
+    return;
+  }
+
+  const body = { kind: ydayKind(), amounts: {} };
+  for (const field of YDAY_FIELDS) body.amounts[field] = kopecksToApi(amounts[field]);
+
+  const formSeq = yday.loadSeq;
+  yday.saving = true;
+  let settleWrite = () => {};
+  const settled = new Promise((resolve) => {
+    settleWrite = resolve;
+  });
+  yday.pendingWrite = { date: isoDate, settled };
+  bumpYdayWriteGen(isoDate);
+  updateYdayControls();
+
+  let data = null;
+  let failure = null;
+  try {
+    data = await requestJSON(`/api/yandex-day/${encodeURIComponent(isoDate)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    if (!data || !data.snapshot || data.snapshot.date !== isoDate) {
+      throw new Error("сервер вернул неожиданный ответ");
+    }
+  } catch (error) {
+    failure = error;
+  }
+  yday.saving = false;
+  yday.pendingWrite = null;
+  bumpYdayWriteGen(isoDate);
+  // Форма, открытая заново на этой дате, продолжит загрузку уже после того,
+  // как этот обработчик отработает: снимок она запросит после записи.
+  settleWrite();
+
+  // Пока шёл PUT, экран могли закрыть и открыть заново: тогда ответ относится
+  // к другому сеансу формы и не трогает её, а результат сообщается уведомлением.
+  // Если новая форма открыта на той же дате, она ждёт эту запись и затем сама
+  // загружает актуальный снимок (loadYdayDate), а до этого закрыта для правки.
+  const current = formSeq === yday.loadSeq && yday.date === isoDate;
+  if (failure) {
+    if (current) setYdayError(`Не сохранено: ${failure.message}`);
+    else showToast(`Итог за ${formatDayLabel(isoDate)} не сохранён: ${failure.message}`, "error");
+  } else {
+    if (current) {
+      fillYdayForm(data.snapshot);
+      showToast(data.replaced ? "Итог дня обновлён" : "Итог дня сохранён", "success");
+    } else {
+      showToast(
+        `Итог за ${formatDayLabel(isoDate)} ${data.replaced ? "обновлён" : "сохранён"}`,
+        "success"
+      );
+    }
+    loadYdaySaved();
+  }
+  updateYdayControls();
+}
+
+function openYday() {
+  if (!els.ydayScreen) return;
+
+  yday.returnFocus = document.activeElement;
+  els.ydayScreen.hidden = false;
+  document.body.classList.add("is-history-open");
+
+  const today = moscowToday();
+  if (els.ydayDate) els.ydayDate.max = today;
+  if (els.ydaySavedEmpty) els.ydaySavedEmpty.textContent = "Пока ничего не сохранено.";
+
+  yday.date = null;
+  loadYdayDate(today);
+  loadYdaySaved();
+
+  if (els.ydayDate) els.ydayDate.focus();
+}
+
+function closeYday() {
+  if (!els.ydayScreen || els.ydayScreen.hidden) return;
+  if (!confirmDiscardYday()) return;
+
+  els.ydayScreen.hidden = true;
+  yday.dirty = false;
+  // Запоздалые ответы GET и PUT больше не относятся к этой форме.
+  yday.loadSeq += 1;
+  yday.status = "idle";
+  updateYdayControls();
+  document.body.classList.remove("is-history-open");
+
+  const target = yday.returnFocus || els.ydayButton;
+  yday.returnFocus = null;
+  if (target && typeof target.focus === "function") target.focus();
+}
+
+function bindYdayEvents() {
+  if (els.ydayButton) els.ydayButton.addEventListener("click", openYday);
+  if (els.ydayClose) els.ydayClose.addEventListener("click", closeYday);
+  if (els.ydaySave && els.ydaySave.parentNode && !yday.retryButton) {
+    const retry = makeEl("button", "btn btn--ghost yday-retry", "Повторить загрузку");
+    retry.type = "button";
+    retry.id = "yday-retry";
+    retry.addEventListener("click", retryYdayLoad);
+    els.ydaySave.parentNode.insertBefore(retry, els.ydaySave);
+    yday.retryButton = retry;
+    updateYdayControls();
+  }
+  if (els.ydayForm) {
+    els.ydayForm.addEventListener("submit", saveYday);
+    els.ydayForm.addEventListener("input", (event) => {
+      if (event.target.classList.contains("yday-amount")) {
+        yday.dirty = true;
+        updateYdayProceeds();
+      }
+    });
+    els.ydayForm.addEventListener("change", (event) => {
+      if (event.target.name === "kind") yday.dirty = true;
+    });
+  }
+  if (els.ydayDate) {
+    els.ydayDate.addEventListener("change", () => switchYdayDate(els.ydayDate.value));
+  }
+  if (els.ydaySavedList) {
+    els.ydaySavedList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-date]");
+      if (button) switchYdayDate(button.dataset.date);
+    });
+  }
+}
+
+/* --------------------------------------------------------------------------
    Карта
    -------------------------------------------------------------------------- */
 
@@ -1677,6 +2166,8 @@ function bindEvents() {
     els.historyClose.addEventListener("click", closeHistory);
   }
 
+  bindYdayEvents();
+
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
 
@@ -1712,6 +2203,10 @@ function bindEvents() {
     }
 
     if (event.key !== "Escape") return;
+    if (els.ydayScreen && !els.ydayScreen.hidden) {
+      closeYday();
+      return;
+    }
     if (document.body.classList.contains("driving-mode")) {
       setDrivingMode(false);
       return;

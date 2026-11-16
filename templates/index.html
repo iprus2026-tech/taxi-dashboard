@@ -47,6 +47,17 @@
       <div class="topbar__actions">
         <button
           type="button"
+          class="history-toggle yday-toggle"
+          id="yday-btn"
+          aria-haspopup="dialog"
+          aria-controls="yday-screen"
+        >
+          <span class="history-toggle__icon" aria-hidden="true">🧾</span>
+          <span>Итог дня из Яндекс Про</span>
+        </button>
+
+        <button
+          type="button"
           class="history-toggle"
           id="history-btn"
           aria-haspopup="dialog"
@@ -409,6 +420,165 @@
         Пока нет завершённых смен. Завершите смену — она появится здесь.
       </p>
       <div class="history-list" id="history-list"></div>
+    </div>
+  </div>
+
+  <!-- Итог дня из Яндекс Про: ручная сверка, отдельно от смены -->
+  <div
+    class="history-screen yday-screen"
+    id="yday-screen"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="yday-title"
+    hidden
+  >
+    <div class="history-screen__top">
+      <div class="history-screen__titles">
+        <h2 class="history-screen__title" id="yday-title">Итог дня из Яндекс Про</h2>
+        <p class="history-screen__subtitle">
+          Ручная сверка с отчётом в Яндекс Про. Не добавляет заказов и не меняет выручку смены.
+        </p>
+      </div>
+
+      <button type="button" class="btn btn--back" id="yday-close">
+        Вернуться к текущей смене
+      </button>
+    </div>
+
+    <div class="history-screen__body">
+      <div class="yday-layout">
+        <form class="yday-form" id="yday-form" novalidate>
+          <div class="yday-form__top">
+            <div class="field">
+              <label class="field__label" for="yday-date">Дата по Москве</label>
+              <input class="field__input" id="yday-date" name="date" type="date" required>
+            </div>
+
+            <fieldset class="yday-kind">
+              <legend class="field__label">Что сохраняем</legend>
+              <div class="yday-kind__options">
+                <label class="yday-kind__option">
+                  <input type="radio" name="kind" value="partial" checked>
+                  <span>Промежуточный срез</span>
+                </label>
+                <label class="yday-kind__option">
+                  <input type="radio" name="kind" value="final">
+                  <span>Итог дня</span>
+                </label>
+              </div>
+            </fieldset>
+          </div>
+
+          <p class="yday-form__state" id="yday-state" role="status">Новая запись</p>
+
+          <h3 class="yday-group__title">Поступления</h3>
+          <div class="yday-grid">
+          <div class="field">
+            <label class="field__label" for="yday-card">Картой, ₽</label>
+            <input
+              class="field__input yday-amount"
+              id="yday-card"
+              name="card"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="0,00"
+              data-field="card"
+            >
+          </div>
+          <div class="field">
+            <label class="field__label" for="yday-cash">Наличными, ₽</label>
+            <input
+              class="field__input yday-amount"
+              id="yday-cash"
+              name="cash"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="0,00"
+              data-field="cash"
+            >
+          </div>
+          <div class="field">
+            <label class="field__label" for="yday-bonuses">Бонусы, ₽</label>
+            <input
+              class="field__input yday-amount"
+              id="yday-bonuses"
+              name="bonuses"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="0,00"
+              data-field="bonuses"
+            >
+          </div>
+          <div class="field">
+            <label class="field__label" for="yday-tips">Чаевые, ₽</label>
+            <input
+              class="field__input yday-amount"
+              id="yday-tips"
+              name="tips"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="0,00"
+              data-field="tips"
+            >
+          </div>
+          </div>
+
+          <h3 class="yday-group__title">Удержания сервиса</h3>
+          <div class="yday-grid">
+          <div class="field">
+            <label class="field__label" for="yday-commission">Комиссия сервиса с НДС, ₽</label>
+            <input
+              class="field__input yday-amount"
+              id="yday-commission"
+              name="commission"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="0,00"
+              data-field="commission"
+            >
+          </div>
+          <div class="field">
+            <label class="field__label" for="yday-extra_services">Дополнительные услуги, ₽</label>
+            <input
+              class="field__input yday-amount"
+              id="yday-extra_services"
+              name="extra_services"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="0,00"
+              data-field="extra_services"
+            >
+          </div>
+          </div>
+
+          <div class="yday-result">
+            <span class="money__label">Выручка дня после удержаний сервиса</span>
+            <span class="yday-result__value" id="yday-proceeds" aria-live="polite">0 ₽</span>
+            <span class="yday-result__hint">
+              Картой + наличными + бонусы + чаевые − комиссия − доп. услуги.
+              До расходов на автомобиль и налога.
+            </span>
+          </div>
+
+          <p class="yday-error" id="yday-error" role="alert" hidden></p>
+
+          <div class="yday-actions">
+            <button class="btn btn--save" type="submit" id="yday-save">Сохранить</button>
+          </div>
+        </form>
+
+        <section class="yday-saved" aria-labelledby="yday-saved-title">
+          <h3 class="yday-group__title" id="yday-saved-title">Сохранённые дни</h3>
+          <p class="yday-saved__empty" id="yday-saved-empty">Пока ничего не сохранено.</p>
+          <ul class="yday-saved__list" id="yday-saved-list"></ul>
+        </section>
+      </div>
     </div>
   </div>
 
