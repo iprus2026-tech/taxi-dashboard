@@ -1,6 +1,6 @@
 # Тест-кейсы Skills `taxi-preflight` и `taxi-evidence-qa`
 
-Документальные проверки вида «вход → ожидаемый итог Skill». Источник фактов — неизменённые записи Issues [#59](https://github.com/iprus2026-tech/taxi-dashboard/issues/59), [#60](https://github.com/iprus2026-tech/taxi-dashboard/issues/60), [#61](https://github.com/iprus2026-tech/taxi-dashboard/issues/61) и [#62](https://github.com/iprus2026-tech/taxi-dashboard/issues/62) на дату пилота 2026-11-16. Разделы D–F добавлены hardening-задачей [#65](https://github.com/iprus2026-tech/taxi-dashboard/issues/65) 2026-11-17 и опираются также на [PR #63](https://github.com/iprus2026-tech/taxi-dashboard/pull/63) и комментарии #65. Значения скопированы из комментариев. Сокращённые хэши (`…`) сокращены либо уже в источнике, либо здесь, когда полное значение приведено в другом месте этого файла.
+Документальные проверки вида «вход → ожидаемый итог Skill». Источник фактов — неизменённые записи Issues [#59](https://github.com/iprus2026-tech/taxi-dashboard/issues/59), [#60](https://github.com/iprus2026-tech/taxi-dashboard/issues/60), [#61](https://github.com/iprus2026-tech/taxi-dashboard/issues/61) и [#62](https://github.com/iprus2026-tech/taxi-dashboard/issues/62) на дату пилота 2026-11-16. Разделы D–F добавлены hardening-задачей [#65](https://github.com/iprus2026-tech/taxi-dashboard/issues/65) 2026-11-17 и опираются также на [PR #63](https://github.com/iprus2026-tech/taxi-dashboard/pull/63) и комментарии #65. Разделы G–I и дополнения к TC-17 добавлены второй hardening-задачей [#68](https://github.com/iprus2026-tech/taxi-dashboard/issues/68) 2026-11-17 и опираются на [PR #66](https://github.com/iprus2026-tech/taxi-dashboard/pull/66) (HEAD `0cb5757c28e87a39e810162657bd38213a10c500`) и комментарии #68. Значения скопированы из комментариев. Сокращённые хэши (`…`) сокращены либо уже в источнике, либо здесь, когда полное значение приведено в другом месте этого файла.
 
 ## Как выполнять (только чтение)
 
@@ -202,8 +202,9 @@
 
 - **Источник:** #65 до CLAIM #6938800898: в Issue только SPEC, G0 и квитанция координатора, ASSIGN нет. Аналогично #62 до [CLAIM #6917252716](https://github.com/iprus2026-tech/taxi-dashboard/issues/62#issuecomment-6917252716).
 - **Вход:** режим `READ_ONLY_PREFLIGHT`, сессия A, момент 2026-11-17T04:53:35Z, `status:ready`, все остальные шаги `PASS`.
-- **Ожидается:** S7 `N/A (no_assignment)`; итог `PASS`; разрешён ровно один `CLAIM/1`, затем `STOP` до ASSIGN.
+- **Ожидается:** S6.1 `N/A (no_assignment)`: в задаче нет ни одного `ASSIGN` от `agent: gpt`; S7 `N/A (no_assignment)`; итог `PASS`; разрешён ровно один `CLAIM/1`, затем `STOP` до ASSIGN.
 - **До исправления (`3abe539f…`):** S7 требовал `now_utc < lease_until` в любом режиме. Значения нет → `NOT_VERIFIED` → итог не `PASS`. Первый CLAIM был невозможен — Codex P2 #4592207785.
+- **До исправления (`0cb5757c…`, добавлено #68):** S7 уже давал `N/A`, но S6.1 L125 безусловно требовал «действующая сессия = S1». Без ASSIGN действующей сессии нет → `STOP (session_not_assigned)`; §4 L171 не разрешал `N/A` для S6, а L173 требовал `PASS` всех обязательных шагов. Итог `STOP`, кейс оставался **red** — Codex P2 #4596961703. **После:** green (§H, R16).
 
 ### TC-18 [H/S] Lease после ASSIGN: точная граница и истечение
 
@@ -354,3 +355,179 @@
 | AC-11 регрессия | раздел E; самопроверки автора в HANDOFF — **не** независимый QA |
 
 Разделы D–F тоже выполняются только чтением: нельзя публиковать сообщения, скачивать вложения или менять Issues.
+
+---
+
+## G. Hardening-02 по Issue #68
+
+Сессии `session_Q1…`, `session_Q2…` и `session_Q3…` ниже — условные заполнители для синтетических входов, а не реальные ID. `X` — условный 40-hex `head_sha` нового HANDOFF. Опорные записи #68:
+- [SPEC #6942795142](https://github.com/iprus2026-tech/taxi-dashboard/issues/68#issuecomment-6942795142) — `53130953a5b425b8fc713274f4007321635f19ed1f6501197086fcf50c8efd16`, 5867 байт;
+- [G0 #6943730960](https://github.com/iprus2026-tech/taxi-dashboard/issues/68#issuecomment-6943730960) — `created_at` 2026-11-17T09:11:48Z, `base_sha: 32067e2c…`, `target_branch: main`;
+- [CLAIM #6943894075](https://github.com/iprus2026-tech/taxi-dashboard/issues/68#issuecomment-6943894075) — `created_at` 2026-11-17T09:19:11Z (внутренний `ts` 09:19:30Z, +19 с, раскрыто), сессия `session_01UHQjyfK487x9yA1CgAYEN1`;
+- [ASSIGN #6943949459](https://github.com/iprus2026-tech/taxi-dashboard/issues/68#issuecomment-6943949459) — `created_at` 2026-11-17T09:21:48Z, `claim_session` = эта сессия, `lease_until: 2026-11-17T18:00:00Z`.
+
+### TC-32 [H] Первый CLAIM #68 без ASSIGN → S6.1 `N/A (no_assignment)`, итог `PASS`
+
+- **Источник:** до 09:19:11Z в #68 были только SPEC, G0 и квитанция координатора [#6943766859](https://github.com/iprus2026-tech/taxi-dashboard/issues/68#issuecomment-6943766859). Ни одного `ASSIGN` не было, `status:ready`. CLAIM #6943894075 записал «S6.1 effective-session → `N/A (no_assignment)`, lease → `N/A (no_lease)`». ASSIGN появился только в 09:21:48Z.
+- **Вход:** `READ_ONLY_PREFLIGHT`, сессия `session_01UHQjyfK487x9yA1CgAYEN1`, момент 09:18:37Z, остальные шаги `PASS`.
+- **Ожидается:** S6.1 `N/A (no_assignment)`, S7 `N/A (no_assignment)`, итог `PASS`, ровно один `CLAIM/1`, затем `STOP` до ASSIGN.
+- **Контроль после ASSIGN:** тот же вход в 09:27Z в `PRE_WRITE` → назначение есть, S6.1 обязателен: действующая сессия = `claim_session` = S1 → `PASS`. Тот же момент в `READ_ONLY_PREFLIGHT` → свой CLAIM уже есть, второй не публикуется.
+- **До исправления (`0cb5757c…`):** L125 → `STOP (session_not_assigned)`; итог не `PASS` (L171, L173) — **red**.
+
+### TC-33 [S] Коллизии в `READ_ONLY_PREFLIGHT`: `N/A` не открывается
+
+| Вход | Ожидается |
+|---|---|
+| A. Действительный ASSIGN от `agent: gpt` на `session_Q1…`; CLAIM хочет опубликовать `session_Q2…` | назначение есть → S6.1 обязателен → `STOP`; второй исполнитель CLAIM не публикует |
+| B. Своя сессия уже опубликовала CLAIM, ASSIGN ещё нет | S6.1 `N/A`, но второй CLAIM не публикуется (ровно один) |
+| C. ASSIGN на `session_Q1…`, затем действительный RESUME на `session_Q2…`; preflight запускает `session_Q1…` | `session_Q1…` устарела → `STOP (session_not_assigned)` |
+| D. Дочерняя (fork) сессия от `session_Q1…` при действующем ASSIGN на `session_Q1…` | `STOP (session_not_assigned)`, как TC-06 и TC-21 D |
+| E. Единственный «ASSIGN» опубликован с `agent: claude-code` | ASSIGN недействителен (§5.2), раскрывается; назначением не считается → S6.1 `N/A`, допустим ровно один CLAIM, решение за координатором |
+| F. ASSIGN от `agent: gpt` отредактирован (`updated_at ≠ created_at`) | прав не даёт, но и `N/A` не открывает (fail closed) → `STOP`, вопрос координатору |
+| G. `PRE_WRITE` или `PRE_HANDOFF` без ASSIGN | `N/A` запрещён → `BLOCKED (assign_missing)` / `STOP` (TC-02) |
+| H. `N/A (no_assignment)` записан для S6.1 при существующем ASSIGN | неразрешённый `N/A` → `NOT_VERIFIED` → итог не `PASS` (§4) |
+| I. Прежний ASSIGN оборван `RELEASE` его действующей сессии (или `REASSIGN` от `agent: gpt`), Issue снова `status:ready`; CLAIM публикует новый заявитель | назначение прекращено → S6.1 `N/A (no_assignment)`, прежняя цепочка раскрывается; ровно один CLAIM |
+| J. Как I, но вместо `RELEASE` опубликован `BLOCKED` действующей сессии | `BLOCKED` цепочку не прекращает (ждёт `RESUME`) → назначение есть → `STOP` |
+
+- **До исправления (`0cb5757c…`):** входы A, C, D давали `STOP` и раньше, без регрессии. Положительный вход (TC-17, TC-32) давал `STOP` вместо `PASS`. Входы E–J не были описаны.
+
+### TC-34 [S] Возобновлённая QA-сессия → проверка и публикация разрешены
+
+- **Вход:** QA-задача по HANDOFF с `head_sha` = X. ASSIGN QA выдан `session_Q1…`, называет `QA-REPORT/1` и `RECEIPT/1` результатом. `session_Q1…` потеряна и публикует `BLOCKED (session_lost)`. Затем идёт отдельный неотредактированный RESUME после ASSIGN: `agent: gpt`, `assignee: deepseek-qa`, `session: session_Q2…`, `head_sha` = X, `spec_sha256` = пересчитанная SPEC QA-задачи = её G0, будущий `lease_until`. `session_Q2…` не связана с автором HANDOFF.
+- **Ожидается:**
+  - `taxi-preflight` `PRE_WRITE` для `session_Q2…`: S6.1 действующая сессия = `session_Q2…` → `PASS`;
+  - `taxi-evidence-qa` §2 п.1 `PASS` без требования `claim_session` = `session_Q2…`; §2 п.2 сессионная независимость `PASS`;
+  - E9 перед публикацией: цепочка не изменилась, lease действует;
+  - `QA-REPORT/1` и `RECEIPT/1` публикует `session_Q2…`, поле `session` = `session_Q2…`;
+  - `session_Q1…` устарела и ничего не публикует.
+- **До исправления (`0cb5757c…`):** evidence-qa L32 «ASSIGN с `claim_session` = эта сессия» → для `session_Q2…` `STOP`; L15 и L25 запрещали публикацию — **red**, хотя `taxi-preflight` S6.1 уже давал `PASS` (Codex P2 #4596961734).
+
+### TC-35 [S] Возобновлённая QA: отрицательные варианты
+
+| Вход (как TC-34, но…) | Ожидается |
+|---|---|
+| A. RESUME опубликован с `agent: deepseek-qa` (самовозобновление) или `agent: claude-code` | поддельный, игнорируется → `STOP (session_not_assigned)`; QA-REPORT и RECEIPT не публикуются |
+| B. RESUME от `agent: gpt`, но отредактирован | недействителен → `STOP` |
+| C. RESUME нет совсем; `session_Q2…` ссылается на чат или квитанцию координатора | `STOP (session_not_assigned)`: квитанция — не RESUME |
+| D. RESUME с `spec_sha256` ≠ SPEC QA-задачи или опубликован до ASSIGN | недействителен → `STOP`; при изменённом теле Issue — `BLOCKED (spec_changed)` |
+| E. `lease_until` RESUME истёк до публикации (E9) | `BLOCKED (lease_expired)`, публикации нет |
+| F. Позже второй действительный RESUME на `session_Q3…`; публиковать пытается `session_Q2…` | `session_Q2…` устарела → `STOP`, черновик передаётся координатору |
+| G. После RESUME опубликован `REASSIGN` | цепочка оборвана → `STOP` |
+| H. Действительный RESUME выдан сессии автора HANDOFF или её дочерней сессии | полномочия есть, независимости нет → `BLOCKED (not_independent)` (§2 п.2, §7.6); QA-REPORT с `PASS` не составляется |
+| I. ASSIGN QA не называет QA-REPORT результатом; RESUME действителен | RESUME scope не расширяет → публиковать нельзя, только черновик |
+
+### TC-36 [H] Permalink на `head_sha` как адрес, байты — из объекта git (G1) → `PASS`
+
+- **Источник:** [HANDOFF #6939150464](https://github.com/iprus2026-tech/taxi-dashboard/issues/65#issuecomment-6939150464) (#65): `head_sha: 0cb5757c28e87a39e810162657bd38213a10c500`. Запись `path: .agents/skills/taxi-preflight/SKILL.md`, `sha256: 4af7e921eecb7b4120e388f18fe7640ee1a0ff21a8bfa674275e6dd0c2bf70f1`, `url: https://github.com/iprus2026-tech/taxi-dashboard/blob/0cb5757c28e87a39e810162657bd38213a10c500/.agents/skills/taxi-preflight/SKILL.md`.
+- **Наблюдение автора этой редакции** (2026-11-17T09:32Z, самопроверка, не независимый QA):
+  - `git ls-remote origin refs/heads/agent/claude-code/taxi-agent-skills-harden-01` = `0cb5757c…`;
+  - `git rev-parse --verify 0cb5757c…^{commit}` = `0cb5757c…`;
+  - `git ls-tree 0cb5757c… -- .agents/skills/taxi-preflight/SKILL.md` → `100644 blob 13c79e24eeed03ca43b0763fb7faddfe7bcc9066`;
+  - `git cat-file blob …` → 28729 байт, `git hash-object` = `13c79e24…9066`, SHA-256 = `4af7e921…70f1`.
+
+  Для `.agents/skills/taxi-evidence-qa/SKILL.md`: `100644 blob f133a41a7ff59f29b50efb6b7f2c6c918235d2a6`, 20583 байта, SHA-256 `80267ce3e32a0beb21762c5d252e7e6f536768ee6758ad41bb1f3759e9d961dd`.
+- **Ожидается:** E4 `protocol_6_3_check: PASS`: точный вид, `head_sha` HANDOFF, тот же `path`. E5-G способ G1. E6 строка: вид `git-blob`, способ G1, происхождение (fetch из `origin`, `head_sha`, `path`, `100644`, `blob_id`), HTTP `N/A (local git object)`, `PASS`.
+- **До исправления (`0cb5757c…`):** E5 L84 — «только точные URL из перечня», способа для объекта git нет. E6 L96 — `PASS` только при «финальный ответ 200 от хранилища GitHub». Чтение `git show` по §3 L58 не давало `PASS`, а загрузка точного URL давала HTML (TC-37) — **red**.
+
+### TC-37 [H/S] HTML-просмотрщик `HTTP 200` и raw-подмены → не байты файла
+
+- **Наблюдение [H]** (автор этой редакции, 2026-11-17T09:32Z): загрузка точного URL из TC-36 через прокси сессии дала `HTTP 200`, `content-type: text/html; charset=utf-8`, 331196 байт, SHA-256 `89934e2dde8484b3d9de728feee4a189c48b7cb7e070082dac1f2bc15ccaf115` ≠ `4af7e921…70f1`. Страница динамическая, поэтому её хэш невоспроизводим и доказательством ничего не является.
+- **Ожидается:** это **не** `FAIL` по хэшу и **не** `PASS`. Ответ просмотрщика — запрещённый способ (E5-G), байты файла не получены. Если подлинным способом (G1 или G2) байты не получены, строка `NOT_VERIFIED`; если получены — итог по ним (TC-36). Хэш HTML не записывается как хэш файла.
+- **Вход [S]:** вместо permalink загружен `https://raw.githubusercontent.com/iprus2026-tech/taxi-dashboard/<X>/<path>`, или `…/blob/<X>/<path>?raw=true`, или `…/raw/<X>/<path>`, или архив `codeload.github.com/…/zip/<X>`, или зеркало или CDN. Хэш совпал. **Ожидается:** подмена источника → байты не засчитываются; без G1 или G2 строка `NOT_VERIFIED`. Если такой адрес стоит **в самом HANDOFF** → E4 `FAIL (url_malformed)` (§6.3).
+- **До исправления (`0cb5757c…`):** просмотрщик давал ложный `FAIL` по хэшу. Raw-подмена не была явно запрещена для permalink — **red**.
+
+### TC-38 [S] Неверный HEAD или путь при получении байтов
+
+| Вход | Ожидается |
+|---|---|
+| A. `git cat-file blob <base_sha>:<path>`, `<ancestor>:<path>` или `<branch>:<path>` вместо `head_sha` | не засчитывается (E5-G: только `head_sha` из адреса); без правильного чтения → `NOT_VERIFIED` |
+| B. Байты прочитаны из рабочей копии (`cat <path>`) или локальной ветки, не сверенной с `origin` | запрещено → `NOT_VERIFIED` |
+| C. `git ls-remote origin <branch>` ≠ `head_sha` до или после проверки | E1 → `VOID` (§6.4) |
+| D. Commit `head_sha` подлинно получен, но записи `path` в его дереве нет | `FAIL (path_not_in_commit)` |
+| E. Запись `path` — symlink `120000`, submodule или каталог; или `100755` при требовании `100644` | `FAIL (not_regular_file)` |
+| F. Чтение по другому `path` той же записи (опечатка в команде) | не засчитывается; повтор с точным `path` в пределах политики попыток |
+
+### TC-39 [S] Неправильный или недопустимый адрес → E4 `FAIL`
+
+| URL в `changed_files` | Ожидается |
+|---|---|
+| `…/blob/0cb5757/<path>` (сокращённый SHA) | `FAIL (url_malformed)` |
+| `…/blob/0CB5757C…/<path>` (верхний регистр) | `FAIL (url_malformed)`: сверка точная |
+| `…/tree/<X>/<path>` | `FAIL (url_malformed)` |
+| `…/blob/<X>/<path>#L10`, `?plain=1` | `FAIL (url_malformed)`: query и фрагмент не допускаются |
+| `http://github.com/…`, другой владелец или репозиторий, `%2F` в пути, `./` или `..` | `FAIL (url_malformed)` |
+| `…/blob/<base_sha>/<path>`, `…/blob/main/<path>` | `FAIL (permalink_not_head)` / `FAIL` (TC-28) |
+
+Во всех случаях E4 и E5–E6 записываются отдельно: совпавшие байты (через G1 по `head_sha`) не исправляют `protocol_6_3_check: FAIL`, и вердикт `FAIL`.
+
+### TC-40 [S] Git objects API (G2), ошибки API и сети
+
+| Вход | Ожидается |
+|---|---|
+| A. `git/commits/X` 200, `sha` = X → дерево → ровно одна запись `path`, `blob`, `100644` → `git/blobs/{blob_id}` → base64 → байты; git-хэш = `blob_id`, SHA-256 = ожидаемому | `PASS`, способ G2, происхождение — цепочка запросов |
+| B. Как A, но git-хэш декодированных байтов ≠ `blob_id` | `NOT_VERIFIED (blob_integrity)`: передача не подлинна; **не** `FAIL` и **не** `PASS` |
+| C. Как A, git-хэш = `blob_id`, но SHA-256 ≠ ожидаемому из HANDOFF | `FAIL` (подлинные байты не совпали) |
+| D. Ответ дерева `truncated: true`, запись не найдена | пошаговый обход; без него → `NOT_VERIFIED`, а не `path_not_in_commit` |
+| E. API 5xx, 403 лимита запросов, 404 на commit | `NOT_VERIFIED`; указать, кто ответил (GitHub API) |
+| F. `git fetch` для G1 → 403 прокси или таймаут | `NOT_VERIFIED`, источник — прокси сессии; без обхода, зеркал и архивов |
+| G. Contents API с `ref=main` | ref не `head_sha` → не засчитывается |
+| H. Инструмент коннектора отдал текст, без контроля `blob_id` | байты не доказаны → `NOT_VERIFIED` |
+
+### TC-41 [S] Пустой git-файл и подлинное несовпадение
+
+| Вход | Ожидается |
+|---|---|
+| A. `git ls-tree X -- <path>` → `100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391`, 0 байт, ожидаемый `e3b0c442…b855`, непустота не требуется | `PASS` (E6, пустой файл) |
+| B. Как A, но AC требует непустой файл | `FAIL` (явная непустота) |
+| C. 0 байт, ожидался другой хэш | `FAIL` (несовпадение) |
+| D. Ожидался `e3b0c442…b855`, получены непустые подлинные байты | `FAIL` (несовпадение) |
+| E. Чтение не выполнено (fetch 403), получено 0 байт | `NOT_VERIFIED`: это не пустой артефакт |
+
+### TC-42 [S] Вложения — отдельный способ (E5-A)
+
+| Вход | Ожидается |
+|---|---|
+| A. `https://github.com/user-attachments/files/<id>/<name>` из перечня → `302 → 200` от хранилища GitHub, SHA-256 = ожидаемому | `PASS`, вид `attachment-raw`, способ E5-A (как TC-12) |
+| B. 403 прокси сессии | `NOT_VERIFIED` (TC-09) |
+| C. Финальный 200 — HTML-страница входа на `github.com`, а не хранилище файлов | `NOT_VERIFIED`; хэш страницы — не хэш вложения |
+| D. Вложение пытаются «получить» через `git show` или Git objects API | неприменимо: G1 и G2 только для git-файлов |
+| E. Git-файл пытаются оценивать по правилу вложений («нужен HTTP 200») | неверно: для G1 HTTP не требуется (E6) |
+
+---
+
+## H. Регрессия «до (`0cb5757c…`) → после» (documentary, red-before / green-after)
+
+«До» — правило на commit `0cb5757c28e87a39e810162657bd38213a10c500` (HEAD PR #66, строки по этому commit). «После» — правило в этой редакции. Это логическая проверка текста, а не исполнение кода. Самопроверка автора — **не** независимый QA.
+
+| # | Замечание | Кейс | До (`0cb5757c…`) | После |
+|---|---|---|---|---|
+| R16 | Codex P2 #4596961703 | TC-17, TC-32 + | preflight L125 безусловно → `STOP (session_not_assigned)`; L171 без `N/A` для S6; итог L173 не `PASS` — **red** | S6.1 «Применимость»: `N/A (no_assignment)` только в `READ_ONLY_PREFLIGHT` без ASSIGN от `agent: gpt`; один CLAIM, затем `STOP` — **green** |
+| R17 | Codex P2 #4596961703 | TC-33 − | A, C, D → `STOP`; E–J не описаны | A, C, D, F, J → `STOP`; B — второй CLAIM не публикуется; G → `BLOCKED (assign_missing)`; H → `NOT_VERIFIED`; E и I раскрываются, `N/A` только при отсутствии или явном прекращении назначения — **green**, без ослабления |
+| R18 | Codex P2 #4596961703 | TC-18 D | `STOP` при чужом ASSIGN | `STOP` (без регрессии): назначение есть, S6.1 обязателен |
+| R19 | Codex P2 #4596961734 | TC-34 + | evidence L32 `claim_session` = эта сессия; L15 и L25 — публикация только при ASSIGN на эту сессию → `STOP` для `session_Q2…` — **red** | §2 п.1, §0, §1, E9, §6: действующая сессия по цепочке S6.1 → `PASS`, публикация от `session_Q2…` — **green** |
+| R20 | Codex P2 #4596961734 | TC-35 − | поддельный RESUME отсекался косвенно, через `claim_session`; RESUME на автора не был назван | явная проверка каждого поля RESUME, `STOP`/`BLOCKED (lease_expired)`; RESUME на автора → `BLOCKED (not_independent)` — **green** |
+| R21 | Codex P2 #4596961721 | TC-36 + | E5 L84 только URL; E6 L96 `PASS` только при HTTP 200 от хранилища; объект git `PASS` не давал — **red** | E5-G G1 и G2, E6 по виду источника, HTTP для G1 не требуется → `PASS` — **green** |
+| R22 | Codex P2 #4596961721 | TC-37 | HTML-просмотрщик 200 → ложный `FAIL` по хэшу — **red** | запрещённый способ, `NOT_VERIFIED` без подлинных байтов, хэш HTML не записывается — **green** |
+| R23 | Codex P2 #4596961721 | TC-38, TC-39 − | `path_not_in_commit`, `not_regular_file`, `url_malformed` не различались | детерминированные `FAIL`, `VOID`, `NOT_VERIFIED` — **green** |
+| R24 | Codex P2 #4596961721 | TC-40, TC-41 | ошибки API, git-хэш, пустой git-файл не описаны | `blob_integrity` → `NOT_VERIFIED`; подлинное несовпадение → `FAIL`; пустой blob по `e3b0c442…b855` → `PASS` — **green** |
+| R25 | Codex P2 #4596961721 | TC-42 | вложения и git-файлы в одном правиле | E5-A отдельно; G1 и G2 к вложениям не применяются — **green** |
+| R26 | четыре P2 PR #63 | TC-17…TC-25 | green в `0cb5757c…` | без регрессии: S6.1 цепочка RESUME, S7 lease, S5 `base.ref`, E6 пустой файл сохранены дословно по смыслу; изменена только применимость S6.1 до ASSIGN |
+| R27 | F1–F4 | TC-13, TC-27…TC-31 | green в `0cb5757c…` | без регрессии: цитата TC-13, S2/S4, E3/S9 запрещённые пути, E4 `permalink_not_head`, §2 независимость сохранены |
+| R28 | AC-2 #68 | TC-26 | адаптеры закрепляли `4af7e921…70f1` и `80267ce3…61dd` | адаптеры закрепляют новые хэши; старые → `BLOCKED (canonical_skill_mismatch)` |
+
+## I. Покрытие критериев Issue #68
+
+| AC #68 | Где |
+|---|---|
+| AC-1 PREFLIGHT, CLAIM, ASSIGN до записи | TC-32; HANDOFF задачи (self_checks) |
+| AC-2 шесть добавленных файлов, хэши адаптеров | README §10; R28; HANDOFF |
+| AC-3 первый CLAIM, коллизии | preflight S6.1, S7, §4; TC-17, TC-32, TC-33; R16–R18 |
+| AC-4 возобновлённая QA | evidence-qa §0, §1, §2, E9, §6; TC-34, TC-35; R19–R20 |
+| AC-5 permalink ≠ сырые байты | evidence-qa §2 п.3, §3, E4, E5-G, E5-A, E6; TC-36, TC-37; R21–R22 |
+| AC-6 регрессии адреса, байтов, API, сети, вложений | TC-37…TC-42; R22–R25 |
+| AC-7 согласованность, хэши, без регрессии | README §9, §10; §H R26–R28 |
+| AC-8 история, `NOT_RUN`/`NOT_VERIFIED`, v1/v2 | разделы A–F не переписаны (дополнены только шапка и TC-17); README §9 |
+| AC-9 HANDOFF, PR, матрица | §H; HANDOFF задачи |
+| AC-10, AC-11 независимый QA, G2, PR #63/#66 | вне scope автора: не выполняются этой редакцией |
+
+Разделы G–I тоже выполняются только чтением: нельзя публиковать сообщения, скачивать вложения или менять Issues.

@@ -1,13 +1,23 @@
-# Проектные Skills Taxi Dashboard (пилот TAXI-AGENT-SKILLS-01, hardening TAXI-AGENT-SKILLS-HARDEN-01)
+# Проектные Skills Taxi Dashboard (пилот TAXI-AGENT-SKILLS-01, hardening TAXI-AGENT-SKILLS-HARDEN-01 и -02)
 
-**Действующая редакция — hardening-замена:**
+**Действующая редакция — вторая hardening-замена:**
 
-- Задача: `TAXI-AGENT-SKILLS-HARDEN-01` ([Issue #65](https://github.com/iprus2026-tech/taxi-dashboard/issues/65)) — новый draft PR вместо PR #63
+- Задача: `TAXI-AGENT-SKILLS-HARDEN-02` ([Issue #68](https://github.com/iprus2026-tech/taxi-dashboard/issues/68)) — третий, отдельный draft PR вместо замороженного PR #66
+- SPEC/1: [#6942795142](https://github.com/iprus2026-tech/taxi-dashboard/issues/68#issuecomment-6942795142), `issue_spec_sha256` `53130953a5b425b8fc713274f4007321635f19ed1f6501197086fcf50c8efd16` (5867 байт)
+- Личный OWNER G0: [#6943730960](https://github.com/iprus2026-tech/taxi-dashboard/issues/68#issuecomment-6943730960) (`target_branch: main`, `previous_pr_66: frozen_do_not_modify`, `original_pr_63: frozen_do_not_modify`)
+- Base SHA: `32067e2c0626840b1b7fd56c250ac31bac3af3d1`
+- Исходное содержимое шести файлов: commit `0cb5757c28e87a39e810162657bd38213a10c500` (HEAD PR #66), воспроизведён побайтно, затем узкие исправления трёх Codex P2 по §10
+- Автор: `claude-code`, сессия `session_01UHQjyfK487x9yA1CgAYEN1`, [CLAIM #6943894075](https://github.com/iprus2026-tech/taxi-dashboard/issues/68#issuecomment-6943894075), [ASSIGN #6943949459](https://github.com/iprus2026-tech/taxi-dashboard/issues/68#issuecomment-6943949459)
+
+**Первая hardening-замена (история, не переписывается):**
+
+- Задача: `TAXI-AGENT-SKILLS-HARDEN-01` ([Issue #65](https://github.com/iprus2026-tech/taxi-dashboard/issues/65)), [PR #66](https://github.com/iprus2026-tech/taxi-dashboard/pull/66) — заморожен ([STOP_MERGE #6942687029](https://github.com/iprus2026-tech/taxi-dashboard/pull/66#issuecomment-6942687029)), не изменяется
 - SPEC/1: [#6931019267](https://github.com/iprus2026-tech/taxi-dashboard/issues/65#issuecomment-6931019267), `issue_spec_sha256` `e435fc5aa51bf41e2398965d98ac2aa9180b68af6b35ca179316bc4fd6f54ac0`
 - Личный OWNER G0: [#6938690743](https://github.com/iprus2026-tech/taxi-dashboard/issues/65#issuecomment-6938690743) (`target_branch: main`, `original_pr_63: frozen_do_not_modify`, `protocol_v2_activation: forbidden`)
 - Base SHA: `32067e2c0626840b1b7fd56c250ac31bac3af3d1`
 - Исходное содержимое шести файлов: commit `3abe539f3e450cf32fdf70dbe5009c519393c09a` (HEAD PR #63), затем узкие исправления по §8
 - Автор: `claude-code`, сессия `session_01UHQjyeTJSiC2rXWYHp1iHR`, [CLAIM #6938800898](https://github.com/iprus2026-tech/taxi-dashboard/issues/65#issuecomment-6938800898), [ASSIGN #6938851208](https://github.com/iprus2026-tech/taxi-dashboard/issues/65#issuecomment-6938851208)
+- Независимый QA PASS [#6942066669](https://github.com/iprus2026-tech/taxi-dashboard/issues/65#issuecomment-6942066669) и G2 [#6942477573](https://github.com/iprus2026-tech/taxi-dashboard/issues/65#issuecomment-6942477573) относятся **только** к `0cb5757c…` и эту редакцию не утверждают
 
 **Исходный пилот (история, не переписывается):**
 
@@ -42,7 +52,7 @@ Skills — **процедурные справки, а не полномочия
 | `.claude/skills/taxi-preflight/SKILL.md` | адаптер Claude Code: отсылает к каноническому файлу и закрепляет его SHA-256 | без собственных правил |
 | `.claude/skills/taxi-evidence-qa/SKILL.md` | адаптер Claude Code: отсылает к каноническому файлу и закрепляет его SHA-256 | без собственных правил |
 | `docs/agents/skills/README.md` | этот документ | справочный |
-| `docs/agents/skills/TEST-CASES.md` | документальные read-only тест-кейсы по Issues #59/#60/#61/#62/#65, синтетические негативные случаи и таблица регрессии hardening (§8) | справочный |
+| `docs/agents/skills/TEST-CASES.md` | документальные read-only тест-кейсы по Issues #59/#60/#61/#62/#65/#68, синтетические негативные случаи и таблицы регрессии hardening (§8, §10) | справочный |
 
 Исполняемых скриптов, внешних зависимостей, новых агентов, webhooks, GitHub Actions и runtime-подключений нет. Команды в тексте Skills (`git ls-remote`, `sha256sum`) — примеры для ручного выполнения разрешёнными в среде инструментами.
 
@@ -115,8 +125,22 @@ Skills — **процедурные справки, а не полномочия
 
 | Категория | Что входит | Статус |
 |---|---|---|
-| **Доказано документально** (чтение и сравнение текста) | правила Skills сверены с PROTOCOL v1; каждый кейс TC-01…TC-31 выведен из текста Skills и первичных комментариев; регрессия «до (`3abe539f…`) → после» для четырёх P2 и F1–F4 (TEST-CASES §E); хэши адаптеров равны хэшам канонических файлов; frontmatter валиден | proved, только documentary |
+| **Доказано документально** (чтение и сравнение текста) | правила Skills сверены с PROTOCOL v1; каждый кейс TC-01…TC-42 выведен из текста Skills и первичных комментариев; регрессия «до (`3abe539f…`) → после» для четырёх P2 и F1–F4 (TEST-CASES §E) и «до (`0cb5757c…`) → после» для трёх новых P2 (TEST-CASES §H); хэши адаптеров равны хэшам канонических файлов; frontmatter валиден | proved, только documentary |
 | **NOT_VERIFIED** | автоматическое обнаружение Skills платформами Claude Code, Codex, DeepSeek Harness; у GPT-координатора обнаружения нет вовсе; личность авторов комментариев (общий аккаунт, §0.1) | не утверждается |
-| **NOT_RUN** | реальное исполнение Skills другой ролью или на другой платформе; интеграция с runtime, ботами, Actions и агентами; скачивание вложений ради тестов; production, планшет, GPS | не выполнялось |
+| **NOT_RUN** | реальное исполнение Skills другой ролью или на другой платформе; интеграция с runtime, ботами, Actions и агентами; скачивание вложений ради тестов; способ E5-G2 (Git objects API) в этой сессии не выполнялся; production, планшет, GPS | не выполнялось |
+
+Самопроверка автора (в том числе однократное чтение G1 и загрузка HTML-просмотрщика для TC-36 и TC-37) — **не** независимый QA.
 
 `docs/agents/PROTOCOL.md` v1 остаётся единственным нормативным протоколом. `docs/agents/v2/**` остаётся `DRAFT / NOT ACTIVE`. Эта редакция ничего не активирует.
+
+## 10. Hardening-02 по Issue #68: что исправлено и где
+
+Исходные замечания — три новых inline-замечания Codex P2 к PR #66 на HEAD `0cb5757c28e87a39e810162657bd38213a10c500`. PR #66, PR #63, их ветки, HANDOFF, QA-REPORT, RECEIPT и OWNER-DECISION не изменялись. Исправления §8 (четыре P2 к PR #63, F1–F4) сохранены без ослабления: TEST-CASES §H, строки R26–R27.
+
+| Замечание | Суть | Исправление | Кейсы |
+|---|---|---|---|
+| [Codex P2 #4596961703](https://github.com/iprus2026-tech/taxi-dashboard/pull/66#discussion_r4596961703) | S6.1 безусловно сравнивал действующую сессию с фактической. До первого ASSIGN действующей сессии нет, поэтому первый CLAIM получал `STOP (session_not_assigned)`, хотя S7 уже давал `N/A` | `taxi-preflight` S6.1 «Применимость»: без единого `ASSIGN` от `agent: gpt` (или при явно прекращённой REASSIGN или RELEASE цепочке и снова `status:ready`) и только в `READ_ONLY_PREFLIGHT` → `N/A (no_assignment)`, ровно один `CLAIM/1`, затем `STOP`. При любом назначении S6.1 обязателен: чужая, устаревшая, fork-сессия и неоднозначный ASSIGN → `STOP`. В `PRE_WRITE`/`PRE_HANDOFF` без ASSIGN → `BLOCKED (assign_missing)`. §4: `N/A` разрешён для S6.1 и S7 по одному и тому же условию | TC-17, TC-32, TC-33 |
+| [Codex P2 #4596961734](https://github.com/iprus2026-tech/taxi-dashboard/pull/66#discussion_r4596961734) | `taxi-evidence-qa` §0, §1 и §2 п.1 требовали `claim_session` исходного ASSIGN = эта сессия. QA-сессию, законно возобновлённую через RESUME, это блокировало | §0, §1, §2 п.1, E9 и §6 используют **действующую сессию** QA-задачи по цепочке `ASSIGN → RESUME…`, как `taxi-preflight` S6.1. Проверяются: сессия, SPEC, lease, роль, порядок, обрыв цепочки, право публикации из ASSIGN. Поддельный, отредактированный, отсутствующий, устаревший или истёкший RESUME → `STOP` или `BLOCKED`. RESUME не даёт независимости: RESUME на сессию автора → `BLOCKED (not_independent)` | TC-34, TC-35 |
+| [Codex P2 #4596961721](https://github.com/iprus2026-tech/taxi-dashboard/pull/66#discussion_r4596961721) | загрузка permalink `github.com/…/blob/<head_sha>/<path>` отдаёт HTML-просмотрщик, а E6 требовал HTTP 200 для PASS. Итог — ложный FAIL или невозможный PASS | E4 проверяет **только адрес**, точно и без нормализации (`url_malformed`, `permalink_not_head`). Новый E5-G получает байты git-файла детерминированно по тем же `head_sha` и `path`: G1 — локальный объект git (`rev-parse`, `ls-tree`, `cat-file blob`, контроль `blob_id`), G2 — Git objects API (commit → tree → path → blob, контроль git-хэша). E5-A — вложения строго по точному URL. HTML-просмотрщик, raw-подмены, архивы, зеркала и рабочая копия запрещены. E6 различает вид источника, записывает происхождение и не требует HTTP для локального объекта git | TC-36…TC-42 |
+
+Адаптеры `.claude/skills/*` закрепляют SHA-256 **новых** канонических файлов. Хэши редакции `0cb5757c…` (`4af7e921…70f1`, `80267ce3…61dd`) при новом каноне дают `BLOCKED (canonical_skill_mismatch)`, как в TC-26.

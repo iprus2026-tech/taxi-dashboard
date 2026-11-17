@@ -1,6 +1,6 @@
 ---
 name: taxi-preflight
-description: Read-only gate check for Taxi Dashboard agent tasks under docs/agents/PROTOCOL.md v1. Use before CLAIM, before the first write after ASSIGN, before HANDOFF, and when a new session finds an in-progress or blocked task. Rebuilds the canonical TAXI-ISSUE-SPEC/1 and its SHA-256 from the live Issue, checks the owner G0 (base_sha, target_branch), Base/main, the actual PR base branch, the effective session from the ASSIGN/RESUME chain, the lease once assigned, and conflicting branches, PRs, worktrees and scopes. Returns PASS, STOP, BLOCKED or NOT_VERIFIED. It never grants G0, ASSIGN, G2/G3, merge or deploy, and never writes OWNER-DECISION.
+description: Read-only gate check for Taxi Dashboard agent tasks under docs/agents/PROTOCOL.md v1. Use before CLAIM, before the first write after ASSIGN, before HANDOFF, and when a new session finds an in-progress or blocked task. Rebuilds the canonical TAXI-ISSUE-SPEC/1 and its SHA-256 from the live Issue, checks the owner G0 (base_sha, target_branch), Base/main, the actual PR base branch, the effective session from the ASSIGN/RESUME chain and the lease once a task is assigned (N/A for the first CLAIM), and conflicting branches, PRs, worktrees and scopes. Returns PASS, STOP, BLOCKED or NOT_VERIFIED. It never grants G0, ASSIGN, G2/G3, merge or deploy, and never writes OWNER-DECISION.
 ---
 
 # taxi-preflight — проверка предусловий задачи (протокол v1)
@@ -104,7 +104,16 @@ description: Read-only gate check for Taxi Dashboard agent tasks under docs/agen
 
 **S6. CLAIM, ASSIGN и fencing (§0.3, §5.1, §5.2).** Найти все `CLAIM`, `ASSIGN`, `RESUME`, `REASSIGN`, `RELEASE`, `BLOCKED` и `CHECKPOINT` задачи. Порядок определяется по `created_at` GitHub, а не по внутреннему `ts`.
 
-**S6.1. Действующая сессия (effective session).** Сессия, которой разрешено работать, определяется по цепочке `ASSIGN → RESUME…` в порядке `created_at` (§5.2, §5.7, §8.2):
+**S6.1. Действующая сессия (effective session).** Сессия, которой разрешено работать, определяется по цепочке `ASSIGN → RESUME…` в порядке `created_at` (§5.2, §5.7, §8.2).
+
+**Применимость S6.1.** Сначала определить, есть ли у задачи **относящееся к ней назначение** — то есть любой `ASSIGN` от `agent: gpt` по этому Task ID, на какую бы сессию он ни был выдан:
+
+- **Назначения нет** — комментариев `ASSIGN` от `agent: gpt` в задаче нет совсем. Сравнивать не с чем: S6.1 → **`N/A (no_assignment)`**. Это разрешено **только** в режиме `READ_ONLY_PREFLIGHT`, то есть для настоящего первого CLAIM. S6 тогда оценивается по строке `READ_ONLY_PREFLIGHT` таблицы ниже, и при остальных `PASS` разрешён ровно один `CLAIM/1`, после чего `STOP` до ASSIGN. `ASSIGN`, опубликованный не от `agent: gpt` (например, исполнителем), недействителен (§5.2): он раскрывается в отчёте и назначением не считается.
+- **Назначение прекращено** — каждая цепочка `ASSIGN → RESUME…` от `agent: gpt` явно оборвана: более поздним действительным `REASSIGN` от `agent: gpt` или `RELEASE` её действующей сессии. При этом Issue снова в `status:ready`. Это тоже `N/A (no_assignment)`, только в `READ_ONLY_PREFLIGHT`, для нового заявителя; прежние ASSIGN, REASSIGN и RELEASE раскрываются в отчёте. `BLOCKED` цепочку не прекращает: он ждёт `RESUME`. Любое сомнение, прекращена ли цепочка, означает, что назначение есть.
+- **Назначение есть** — тогда S6.1 обязателен в любом режиме, включая `READ_ONLY_PREFLIGHT`, и `N/A` не допускается. Это верно и для `ASSIGN` от `agent: gpt`, который отредактирован, неоднозначен или, возможно, прерван: такой ASSIGN прав не даёт, но и `N/A` не открывает (fail closed). Результат — `STOP` и вопрос координатору.
+- В режимах `PRE_WRITE` и `PRE_HANDOFF` отсутствие назначения — это не `N/A`, а `BLOCKED (assign_missing)` / `STOP` (TC-02). В режиме `RECOVERY` действует строка `RECOVERY` таблицы ниже.
+
+Цепочка строится так:
 
 1. Начало цепочки — последний действующий `ASSIGN`: `agent: gpt`, отдельный комментарий, не редактировался, `spec_sha256` = хэш из S3 = G0, `base_sha` = Base. Его `claim_session` — исходная сессия.
 2. Каждый **более поздний действительный** `RESUME` заменяет действующую сессию значением своего поля `session`. RESUME действителен, только если выполнено всё:
@@ -122,22 +131,22 @@ description: Read-only gate check for Taxi Dashboard agent tasks under docs/agen
 4. Недействительный RESUME **игнорируется**: он не передаёт права. Если текущая сессия может опереться только на такой RESUME → `STOP (session_not_assigned)`.
 5. Сессия, которую заменил действительный RESUME, становится **устаревшей**: она больше не пишет. Это относится и к исходной сессии из `claim_session`.
 
-Действующая сессия должна совпасть с фактической сессией из S1. Иначе `STOP (session_not_assigned)`. Это относится к чужой, неизвестной, устаревшей, дочерней (fork), «посеянной» и самовольно возобновлённой сессии.
+**Когда назначение есть**, действующая сессия должна совпасть с фактической сессией из S1. Иначе `STOP (session_not_assigned)`. Это относится к чужой, неизвестной, устаревшей, дочерней (fork), «посеянной» и самовольно возобновлённой сессии. **Когда назначения нет** (`N/A (no_assignment)`, только `READ_ONLY_PREFLIGHT`), сравнение не выполняется и итог не блокирует.
 
 | Режим | Требования |
 |---|---|
-| `READ_ONLY_PREFLIGHT` | Своих CLAIM ещё нет: допускается **ровно один**. Чужие CLAIM и ASSIGN раскрываются; при действующем ASSIGN на другую сессию — `STOP`. CLAIM — заявка, а не блокировка. |
+| `READ_ONLY_PREFLIGHT` | Назначения нет → S6.1 `N/A (no_assignment)`. Своих CLAIM ещё нет: допускается **ровно один**; если свой CLAIM уже опубликован, второй не публикуется. Чужие CLAIM раскрываются. Назначение есть → S6.1 обязателен: ASSIGN на другую сессию, сессия, которую заменил RESUME, или неоднозначный ASSIGN от `agent: gpt` → `STOP`. CLAIM — заявка, а не блокировка. |
 | `PRE_WRITE` | Цепочка S6.1 начинается с действующего `ASSIGN`. **Действующая сессия** = фактическая сессия из S1: это `claim_session` ASSIGN или `session` более позднего действительного RESUME. `spec_sha256` ASSIGN и RESUME = хэш из S3 = G0. `base_sha` = Base. `branch` = планируемая ветка. Цепочку не оборвали `REASSIGN`, `BLOCKED` или `RELEASE`. |
 | `PRE_HANDOFF` | Всё из `PRE_WRITE`, включая цепочку S6.1. S3, S4, S5 (base ветка PR) и S7 пересчитаны **непосредственно перед** HANDOFF. HEAD ветки = commit, который будет указан в HANDOFF. Поле `session` HANDOFF = действующая сессия. |
 | `RECOVERY` | §8.2: сравнить `head_sha` последнего ASSIGN, RESUME, CHECKPOINT или HANDOFF с `git ls-remote origin <branch>`. В любом случае подготовить `BLOCKED` и ждать `RESUME` от координатора с **новой** сессией. Самостоятельный `RESUME` недействителен. |
 
-ASSIGN без указания сессии → `STOP`. Работать может только **действующая сессия** из S6.1.
+ASSIGN без указания сессии → `STOP`. Работать (ветка, файлы, commit, PR, HANDOFF) может только **действующая сессия** из S6.1. Публикация первого `CLAIM/1` в `READ_ONLY_PREFLIGHT` без назначения работой не является и действующей сессии не требует.
 
 **S7. Lease (§8.1).** Применимость зависит от режима:
 
 | Режим | S7 |
 |---|---|
-| `READ_ONLY_PREFLIGHT`, у задачи ещё нет действующего ASSIGN или RESUME | **`N/A (no_assignment)`**. Lease появляется только с ASSIGN, поэтому при первом CLAIM его нет. Это не пропущенная обязательная проверка, и PASS она не блокирует. Если чужой ASSIGN есть, его lease раскрывается для S6 и S8. |
+| `READ_ONLY_PREFLIGHT`, назначения нет (то же условие, что `N/A (no_assignment)` в S6.1) | **`N/A (no_assignment)`**. Lease появляется только с ASSIGN, поэтому при первом CLAIM его нет. Это не пропущенная обязательная проверка, и PASS она не блокирует. Если назначение есть, `N/A` не допускается: lease действующего ASSIGN или RESUME раскрывается для S6 и S8, а S6.1 решает, можно ли продолжать. |
 | `PRE_WRITE`, `PRE_HANDOFF` | **обязательна**: правила ниже. |
 | `RECOVERY` | lease записывается в отчёт; работа в любом случае ждёт RESUME. |
 
@@ -168,7 +177,7 @@ ASSIGN без указания сессии → `STOP`. Работать мож�
 | `NOT_VERIFIED (<что>)` | проверить не удалось: нет доступа, инструмент запрещён, источник недоступен | для обязательного шага итог — `BLOCKED`; обходов нет |
 | `BLOCKED (<причина>)` | предусловия нет или оно изменилось | никаких записей; подготовить черновик `BLOCKED` |
 | `STOP` | конфликт, чужая сессия, неясная полномочность | остановиться, раскрыть, ждать координатора |
-| `N/A (<почему>)` | шаг к режиму не применим; допускается **только** там, где этот навык прямо его называет: S2 зависимости при `- none`, S5 base PR без PR, S7 до первого ASSIGN | записать причину; PASS не блокирует |
+| `N/A (<почему>)` | шаг к режиму не применим; допускается **только** там, где этот навык прямо его называет: S2 зависимости при `- none`, S5 base PR без PR, S6.1 и S7 до первого ASSIGN (`no_assignment`, только `READ_ONLY_PREFLIGHT`) | записать причину; PASS не блокирует |
 
 Итог отчёта: `PASS`, только если все обязательные для режима шаги S0–S9 дали `PASS` или разрешённый `N/A`. Иначе берётся самый строгий результат (`STOP` > `BLOCKED` > `NOT_VERIFIED`). Если `N/A` указан там, где навык его не разрешает, это `NOT_VERIFIED`.
 
@@ -192,7 +201,7 @@ S2 issue: labels=<...> status_labels=<n, нужен 1> status=<...> dup_search=<
 S3 spec: <bytes> bytes, sha256=<64hex>; vector=<PASS|FAIL>; spec_ref=<url> -> PASS|BLOCKED(spec_changed)
 S4 g0: ref=<url> approved=<64hex> g0_base=<40hex|absent> spec_base=<40hex> target_branch=<ветка> -> PASS|BLOCKED(g0_missing|base_mismatch)
 S5 base: base=<40hex> target_head=<40hex> ancestor=<0|1> pr_base_ref=<ветка|N/A> -> PASS|BLOCKED(pr_target_mismatch|pr_missing)
-S6 fencing: claim=<url> assign=<url> claim_session=<id> resume_chain=<urls|none> effective_session=<id> -> PASS|STOP
+S6 fencing: claim=<url|none> assign=<url|none> claim_session=<id|none> resume_chain=<urls|none> effective_session=<id|N/A(no_assignment)> -> PASS|N/A|STOP
 S7 lease: lease_until=<ISO|N/A(no_assignment)> source=<url> -> PASS|N/A|BLOCKED(lease_expired)
 S8 conflicts: branches=<...> prs=<...> scopes=<...> worktrees=<...> -> PASS|STOP
 S9 paths: <список> forbidden_hits=<0|список> -> PASS|BLOCKED(forbidden_path|path_not_allowed)
