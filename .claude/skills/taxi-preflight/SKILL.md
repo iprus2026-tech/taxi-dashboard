@@ -15,7 +15,7 @@ description: Claude Code adapter for the canonical Taxi Dashboard skill at .agen
 
 ```text
 path: .agents/skills/taxi-preflight/SKILL.md
-sha256: d55f6e55c94fbb98ad92a74a611b43b3e4a23d899b2a47b21ced58c5a3288b5f
+sha256: b39616d6e059bf6854ef4ffab9f414baa5139ac168d4f492c108297c6ee30355
 ```
 
 Особенности Claude Code, не меняющие процедуру:

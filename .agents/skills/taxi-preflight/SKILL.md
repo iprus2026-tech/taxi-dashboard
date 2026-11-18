@@ -83,7 +83,18 @@ description: Read-only gate check for Taxi Dashboard agent tasks under docs/agen
 
 Любое расхождение → `BLOCKED (spec_changed)`. Работа и передача результата прекращаются до новой пары `SPEC` + G0 (§4.2 п.4–5). Старый G0 на новый хэш не распространяется.
 
-**S4. G0 (§5.6, §4.3).** Найти `OWNER-DECISION` с `gate: G0-intake`, `decision: APPROVE` и `approved_spec_sha256`, равным хэшу из S3 (полные 64 hex). Комментарий не редактировался. Если таких решений несколько, действует **последнее** по `created_at` (§4.3 п.3). В `note` есть строка `target_branch: <ветка>`; без неё G0 недействителен для ASSIGN (§4.3 п.2). Эта ветка — `target_branch` для S5. Сверить остальные ограничения `note` (роль, scope, запреты) с планируемыми действиями.
+**S4. G0 (§5.6, §4.3).** Сначала выбрать **последнее действующее решение** владельца по G0, и только потом проверять, что оно `APPROVE`. Фильтровать по `decision: APPROVE` до выбора последнего нельзя: так более позднее `REJECT` или `CHANGES` было бы пропущено.
+
+1. **Кандидаты.** Все блоки `type: OWNER-DECISION` с `gate: G0-intake`, относящиеся к этой задаче (`task` = Task ID; в G0 на несколько задач — пара `task_id` + хэш этой задачи), **с любым** `decision`: `APPROVE`, `REJECT` или `CHANGES`. Порядок — по `created_at` GitHub, а не по внутреннему `ts`.
+2. **Действительность.** Решение действительно, только если выполнено всё: отдельный комментарий, `created_at = updated_at`; `agent: owner`; блок не пришёл в relay от агента и не опубликован агентом; `ts` — корректная метка ISO 8601 UTC; `decision` — ровно одно из трёх значений; у `APPROVE` есть `approved_spec_sha256` в полные 64 hex.
+3. **Действующее решение** — последнее по `created_at` **действительное** решение из п.1. Именно его `decision` определяет итог:
+   - `REJECT` → `BLOCKED (g0_rejected)`; `CHANGES` → `BLOCKED (g0_changes_requested)`. Так и тогда, когда раньше было `APPROVE`, в том числе по тому же хэшу SPEC. Более раннее `APPROVE` после них прав не даёт, пока владелец не опубликует **новое** `APPROVE` позже. Если `REJECT` или `CHANGES` ссылается на другой хэш SPEC или не указывает хэш, оно всё равно блокирует (fail closed), а расхождение записывается в отчёт;
+   - `APPROVE` → `approved_spec_sha256` равен хэшу из S3 (полные 64 hex). Иначе `BLOCKED (spec_changed)`.
+4. **Недействительные решения** не дают прав никогда. Недействительное `APPROVE` (отредактированное, от агента или в relay, с некорректным `ts`) пропускается и раскрывается; действующее решение выбирается среди действительных. Недействительное или неоднозначное `REJECT`/`CHANGES` **позже** действующего `APPROVE` молча не отбрасывается: `STOP (owner_decision_ambiguous)` и вопрос координатору и владельцу. Два решения с разными `decision` и одинаковым `created_at` → тот же `STOP`.
+5. Несколько действительных `APPROVE` подряд: действует **последнее** по `created_at` (§4.3 п.3). Работа никогда не разрешается только на основании более раннего `APPROVE`, если после него есть более позднее решение.
+6. S4 пересчитывается в каждом режиме и в каждой контрольной точке: `REJECT` или `CHANGES`, опубликованное после ASSIGN, останавливает работу при следующем `PRE_WRITE` или `PRE_HANDOFF`.
+
+У действующего `APPROVE` в `note` есть строка `target_branch: <ветка>`; без неё G0 недействителен для ASSIGN (§4.3 п.2). Эта ветка — `target_branch` для S5. Сверить остальные ограничения `note` (роль, scope, запреты) с планируемыми действиями.
 
 - **Base в G0.** Если блок G0 содержит поле `base_sha`, оно побайтно (40 hex, нижний регистр) равно `base_sha` канонической SPEC из S3. Расхождение → `BLOCKED (base_mismatch)`, даже если `approved_spec_sha256` совпал. Если поля нет, Base утверждён через `approved_spec_sha256` (он входит в SPEC, §4.3 п.4): это записывается в отчёт и провалом не является.
 - G0 нет → `BLOCKED (g0_missing)`.
@@ -125,9 +136,9 @@ description: Read-only gate check for Taxi Dashboard agent tasks under docs/agen
    - поле `session` заполнено и отличается от сессии, которую он заменяет;
    - `head_sha` — полные 40 hex. При первой записи после RESUME он равен `git ls-remote origin <branch>`, позже — предок текущего HEAD;
    - есть `lease_until` (S7).
-3. Цепочку обрывают и требуют нового решения координатора:
-   - `REASSIGN` → `STOP` для прежнего исполнителя (§8.1);
-   - более поздний `BLOCKED` или `RELEASE` от действующей сессии → нужен новый RESUME.
+3. Цепочку прерывают и требуют нового решения координатора:
+   - `REASSIGN` → `STOP` для прежнего исполнителя (§8.1). `RELEASE` действующей сессии — отказ от задачи (§5.7). После них цепочка **прекращена**: нужен новый `ASSIGN`, а RESUME после них прав не даёт;
+   - более поздний `BLOCKED` → нужен новый действительный RESUME, опубликованный **после** этого `BLOCKED`. Восстановимые случаи — `BLOCKED (lease_expired)` (§8.1), `BLOCKED (session_lost)` и `BLOCKED` с фактическим HEAD впереди, позади или без ветки (§8.2). При другой причине (`spec_changed`, `g0_rejected`, `target_changed` и т.п.) RESUME действителен, только если сама причина устранена и S3–S5 этой проверки дают `PASS`; иначе `STOP`.
 4. Недействительный RESUME **игнорируется**: он не передаёт права. Если текущая сессия может опереться только на такой RESUME → `STOP (session_not_assigned)`.
 5. Сессия, которую заменил действительный RESUME, становится **устаревшей**: она больше не пишет. Это относится и к исходной сессии из `claim_session`.
 
@@ -136,7 +147,7 @@ description: Read-only gate check for Taxi Dashboard agent tasks under docs/agen
 | Режим | Требования |
 |---|---|
 | `READ_ONLY_PREFLIGHT` | Назначения нет → S6.1 `N/A (no_assignment)`. Своих CLAIM ещё нет: допускается **ровно один**; если свой CLAIM уже опубликован, второй не публикуется. Чужие CLAIM раскрываются. Назначение есть → S6.1 обязателен: ASSIGN на другую сессию, сессия, которую заменил RESUME, или неоднозначный ASSIGN от `agent: gpt` → `STOP`. CLAIM — заявка, а не блокировка. |
-| `PRE_WRITE` | Цепочка S6.1 начинается с действующего `ASSIGN`. **Действующая сессия** = фактическая сессия из S1: это `claim_session` ASSIGN или `session` более позднего действительного RESUME. `spec_sha256` ASSIGN и RESUME = хэш из S3 = G0. `base_sha` = Base. `branch` = планируемая ветка. Цепочку не оборвали `REASSIGN`, `BLOCKED` или `RELEASE`. |
+| `PRE_WRITE` | Цепочка S6.1 начинается с действующего `ASSIGN`. **Действующая сессия** = фактическая сессия из S1: это `claim_session` ASSIGN или `session` более позднего действительного RESUME. `spec_sha256` ASSIGN и RESUME = хэш из S3 = G0. `base_sha` = Base. `branch` = планируемая ветка. После ASSIGN или последнего действительного RESUME цепочку не прервали `REASSIGN`, `BLOCKED` или `RELEASE` (S6.1 п.3). |
 | `PRE_HANDOFF` | Всё из `PRE_WRITE`, включая цепочку S6.1. S3, S4, S5 (base ветка PR) и S7 пересчитаны **непосредственно перед** HANDOFF. HEAD ветки = commit, который будет указан в HANDOFF. Поле `session` HANDOFF = действующая сессия. |
 | `RECOVERY` | §8.2: сравнить `head_sha` последнего ASSIGN, RESUME, CHECKPOINT или HANDOFF с `git ls-remote origin <branch>`. В любом случае подготовить `BLOCKED` и ждать `RESUME` от координатора с **новой** сессией. Самостоятельный `RESUME` недействителен. |
 
@@ -199,7 +210,7 @@ S0 protocol: v1 normative; v2 DRAFT/NOT ACTIVE -> PASS|...
 S1 session: <id>; disclosures: <...> -> PASS|NOT_VERIFIED
 S2 issue: labels=<...> status_labels=<n, нужен 1> status=<...> dup_search=<n> depends_on=<none|список: статусы> -> PASS|BLOCKED(status_ambiguous|dependency_not_done)
 S3 spec: <bytes> bytes, sha256=<64hex>; vector=<PASS|FAIL>; spec_ref=<url> -> PASS|BLOCKED(spec_changed)
-S4 g0: ref=<url> approved=<64hex> g0_base=<40hex|absent> spec_base=<40hex> target_branch=<ветка> -> PASS|BLOCKED(g0_missing|base_mismatch)
+S4 g0: decisions=<все G0 по created_at: id, decision, valid> operative=<url> decision=<APPROVE|REJECT|CHANGES> approved=<64hex> g0_base=<40hex|absent> spec_base=<40hex> target_branch=<ветка> -> PASS|BLOCKED(g0_missing|g0_rejected|g0_changes_requested|spec_changed|base_mismatch)|STOP(owner_decision_ambiguous)
 S5 base: base=<40hex> target_head=<40hex> ancestor=<0|1> pr_base_ref=<ветка|N/A> -> PASS|BLOCKED(pr_target_mismatch|pr_missing)
 S6 fencing: claim=<url|none> assign=<url|none> claim_session=<id|none> resume_chain=<urls|none> effective_session=<id|N/A(no_assignment)> -> PASS|N/A|STOP
 S7 lease: lease_until=<ISO|N/A(no_assignment)> source=<url> -> PASS|N/A|BLOCKED(lease_expired)

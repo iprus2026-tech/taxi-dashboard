@@ -1,6 +1,6 @@
 # Тест-кейсы Skills `taxi-preflight` и `taxi-evidence-qa`
 
-Документальные проверки вида «вход → ожидаемый итог Skill». Источник фактов — неизменённые записи Issues [#59](https://github.com/iprus2026-tech/taxi-dashboard/issues/59), [#60](https://github.com/iprus2026-tech/taxi-dashboard/issues/60), [#61](https://github.com/iprus2026-tech/taxi-dashboard/issues/61) и [#62](https://github.com/iprus2026-tech/taxi-dashboard/issues/62) на дату пилота 2026-11-16. Разделы D–F добавлены hardening-задачей [#65](https://github.com/iprus2026-tech/taxi-dashboard/issues/65) 2026-11-17 и опираются также на [PR #63](https://github.com/iprus2026-tech/taxi-dashboard/pull/63) и комментарии #65. Разделы G–I и дополнения к TC-17 добавлены второй hardening-задачей [#68](https://github.com/iprus2026-tech/taxi-dashboard/issues/68) 2026-11-17 и опираются на [PR #66](https://github.com/iprus2026-tech/taxi-dashboard/pull/66) (HEAD `0cb5757c28e87a39e810162657bd38213a10c500`) и комментарии #68. Значения скопированы из комментариев. Сокращённые хэши (`…`) сокращены либо уже в источнике, либо здесь, когда полное значение приведено в другом месте этого файла.
+Документальные проверки вида «вход → ожидаемый итог Skill». Источник фактов — неизменённые записи Issues [#59](https://github.com/iprus2026-tech/taxi-dashboard/issues/59), [#60](https://github.com/iprus2026-tech/taxi-dashboard/issues/60), [#61](https://github.com/iprus2026-tech/taxi-dashboard/issues/61) и [#62](https://github.com/iprus2026-tech/taxi-dashboard/issues/62) на дату пилота 2026-11-16. Разделы D–F добавлены hardening-задачей [#65](https://github.com/iprus2026-tech/taxi-dashboard/issues/65) 2026-11-17 и опираются также на [PR #63](https://github.com/iprus2026-tech/taxi-dashboard/pull/63) и комментарии #65. Разделы G–I и дополнения к TC-17 добавлены второй hardening-задачей [#68](https://github.com/iprus2026-tech/taxi-dashboard/issues/68) 2026-11-17 и опираются на [PR #66](https://github.com/iprus2026-tech/taxi-dashboard/pull/66) (HEAD `0cb5757c28e87a39e810162657bd38213a10c500`) и комментарии #68. Разделы J–L добавлены задачей [#75](https://github.com/iprus2026-tech/taxi-dashboard/issues/75) 2026-11-18 и опираются на три замечания Codex к [PR #72](https://github.com/iprus2026-tech/taxi-dashboard/pull/72) (HEAD `8b3a622c49af58409340965ecb5f0849c3befd7f`) и комментарии #75. Значения скопированы из комментариев. Сокращённые хэши (`…`) сокращены либо уже в источнике, либо здесь, когда полное значение приведено в другом месте этого файла.
 
 ## Как выполнять (только чтение)
 
@@ -531,3 +531,132 @@
 | AC-10, AC-11 независимый QA, G2, PR #63/#66 | вне scope автора: не выполняются этой редакцией |
 
 Разделы G–I тоже выполняются только чтением: нельзя публиковать сообщения, скачивать вложения или менять Issues.
+
+---
+
+## J. Codex P2 к PR #72 (Issue #75)
+
+`D1…`, `D2…`, `D3…` — условные ID комментариев с решениями владельца, `session_R1…`, `session_R2…` — условные сессии, `X` — условный 40-hex `head_sha`, `H` — условный хэш SPEC. Это заполнители для синтетических входов, а не реальные значения. Опорные записи #75:
+- три замечания: [#4611549410](https://github.com/iprus2026-tech/taxi-dashboard/pull/72#discussion_r4611549410) (preflight S4), [#4611549429](https://github.com/iprus2026-tech/taxi-dashboard/pull/72#discussion_r4611549429) (evidence-qa §2 п.1), [#4611549445](https://github.com/iprus2026-tech/taxi-dashboard/pull/72#discussion_r4611549445) (evidence-qa E5-G2), все `created_at` 2026-11-18T09:18Z;
+- [SPEC #6974576608](https://github.com/iprus2026-tech/taxi-dashboard/issues/75#issuecomment-6974576608) — `fde63f7ea278586373312cfa571951832bfacfe0a5e9de548307440c28c55566`, 5266 байт;
+- [G0 #6974769442](https://github.com/iprus2026-tech/taxi-dashboard/issues/75#issuecomment-6974769442) — единственное решение G0 задачи, `APPROVE`, `created_at = updated_at` 2026-11-18T09:41:56Z.
+
+Все кейсы этого раздела — `DOC_REVIEW`: логическая проверка текста Skill «вход → итог», runtime `NOT_RUN`. Исполняемых тестов у Skills нет, CI их не запускает.
+
+### TC-43 [S] Последнее решение G0 важнее раннего `APPROVE`
+
+Все решения ниже — действительные (`agent: owner`, отдельный неотредактированный комментарий, корректный `ts`), если не сказано иное. Порядок — по `created_at`.
+
+| Вход | Ожидается |
+|---|---|
+| A. `D1` `APPROVE` по `H`, затем `D2` `REJECT` по `H` | действующее — `D2` → `BLOCKED (g0_rejected)`; `D1` прав не даёт |
+| B. `D1` `APPROVE` по `H`, затем `D2` `CHANGES` по `H` | действующее — `D2` → `BLOCKED (g0_changes_requested)` |
+| C. `D1` `APPROVE`, `D2` `REJECT`, затем `D3` `APPROVE` по `H` с `target_branch` | действующее — `D3` → S4 `PASS` |
+| D. `D1` `APPROVE` по `H`, затем `D2` `REJECT` по другому хэшу или без хэша | `D2` всё равно блокирует (fail closed) → `BLOCKED (g0_rejected)`, расхождение раскрывается |
+| E. `D1` `APPROVE` по старому хэшу, затем `D2` `APPROVE` по `H` | действующее — `D2` → `PASS`; при наоборот (`D2` по старому хэшу) → `BLOCKED (spec_changed)` |
+| F. `D1` `APPROVE`, ASSIGN, затем `D2` `REJECT`; исполнитель запускает `PRE_WRITE` или `PRE_HANDOFF` | `BLOCKED (g0_rejected)`: S4 пересчитывается в каждой контрольной точке, работа останавливается |
+
+### TC-44 [S] Решения G0: недействительные и неоднозначные
+
+| Вход | Ожидается |
+|---|---|
+| A. `D1` `APPROVE` действителен, позже `D2` `REJECT` отредактирован (`updated_at ≠ created_at`) | недействительный отказ молча не отбрасывается → `STOP (owner_decision_ambiguous)` |
+| B. `D1` `APPROVE`, позже `D2` `CHANGES` с `agent: gpt` или в relay от агента | `STOP (owner_decision_ambiguous)`: прав не даёт и не отбрасывается молча |
+| C. `D1` `REJECT` действителен, позже `D2` `APPROVE` отредактирован, от агента или с `ts: 2026-11-18 09:38` (не ISO 8601 UTC) | `D2` недействительно и пропускается; действующее — `D1` → `BLOCKED (g0_rejected)` |
+| D. `D1` `APPROVE` и `D2` `REJECT` с одинаковым `created_at` | `STOP (owner_decision_ambiguous)` |
+| E. Два действительных `APPROVE` по `H` | действует последнее по `created_at`; его `base_sha` и `target_branch` идут в S4/S5 |
+| F. Решения нет, есть только квитанция координатора или label `gate:G0-intake` | `BLOCKED (g0_missing)` (как TC-01, T35) |
+| G. Действующее `APPROVE` по `H`, но `base_sha` G0 ≠ `base_sha` SPEC | `BLOCKED (base_mismatch)` (как TC-31) |
+
+### TC-45 [S] RESUME после восстановимого `BLOCKED` → проверка и публикация разрешены
+
+Общий вход: QA-задача, ASSIGN на `session_R1…`, называет `QA-REPORT/1` и `RECEIPT/1` результатом. Затем — одно из сообщений ниже, а после него отдельный неотредактированный RESUME: `agent: gpt`, `assignee: deepseek-qa`, `session: session_R2…`, полный `head_sha`, `spec_sha256` = SPEC QA-задачи = её G0, будущий `lease_until` в пределах максимума. QA-REPORT по этому HANDOFF ещё не публиковался.
+
+| Сообщение до RESUME | Ожидается |
+|---|---|
+| A. `BLOCKED (lease_expired)` от координатора (§8.1) | цепочка восстановлена → действующая сессия `session_R2…`, §2 п.1 `PASS`; lease — только из RESUME |
+| B. `BLOCKED (session_lost)`, HEAD = `head_sha` (§8.2) | `PASS`, как TC-34 |
+| C. `BLOCKED` с фактическим HEAD впереди; `head_sha` RESUME = фактический HEAD | `PASS`; дальше E1 сверяет HEAD с `head_sha` HANDOFF: если HANDOFF устарел — `VOID` (§6.4), а не публикация |
+| D. Как A, проверка `taxi-preflight` `PRE_WRITE` для `session_R2…` | S6.1 `PASS` (п.3: восстановимый `BLOCKED` → новый RESUME), S7 `PASS` по `lease_until` RESUME |
+
+Во всех случаях `session_R1…` устарела и ничего не публикует; `session_R2…` проходит §2 п.1–3 и E1–E9 заново.
+
+### TC-46 [S] RESUME после `BLOCKED`: отрицательные варианты
+
+| Вход (как TC-45 A, но…) | Ожидается |
+|---|---|
+| A. RESUME опубликовала сама `session_R2…` (`agent: deepseek-qa`) или `agent: claude-code` | самовозобновление недействительно → `STOP (session_not_assigned)` |
+| B. RESUME опубликован **до** `BLOCKED (lease_expired)`, нового RESUME после нет | `BLOCKED` не закрыт → прав нет, `STOP` |
+| C. `lease_until` RESUME уже прошёл, или RESUME повторяет истёкший `lease_until` прежнего ASSIGN | `BLOCKED (lease_expired)`: старый lease не используется |
+| D. `lease_until` RESUME больше максимума Issue или G0 | lease недействителен → `BLOCKED`, вопрос координатору |
+| E. `spec_sha256` RESUME ≠ пересчитанной SPEC, или тело Issue изменилось | `STOP` / `BLOCKED (spec_changed)` |
+| F. `head_sha` RESUME ≠ фактическому HEAD ветки (устаревший HEAD) | RESUME недействителен → `STOP` |
+| G. После RESUME опубликован новый `BLOCKED`, `REASSIGN`, `RELEASE` или RESUME на `session_R3…` | `session_R2…` не публикует → `STOP`, черновик координатору |
+| H. Вместо `BLOCKED` был `REASSIGN` или `RELEASE` действующей сессии, затем RESUME | цепочка прекращена: RESUME прав не даёт, нужен новый ASSIGN → `STOP` |
+| I. QA-REPORT или RECEIPT по этому HANDOFF уже опубликован (прежней или любой сессией) | повторной публикации нет → `STOP`, вопрос координатору |
+| J. `session_R1…` после RESUME пытается опубликовать QA-REPORT, её lease формально ещё не истёк | `session_R1…` устарела → публикации нет |
+| K. `BLOCKED (not_independent)`, затем RESUME на ту же зависимую сессию | причина не устранена → `STOP` / `BLOCKED (not_independent)` |
+| L. RESUME выдан сессии автора HANDOFF | полномочия есть, независимости нет → `BLOCKED (not_independent)` (как TC-35 H) |
+
+### TC-47 [H/S] E5-G: G1 и G2 дают одинаковый итог для одного дерева
+
+- **Наблюдение [H]** (автор этой редакции, 2026-11-18T10:19Z, самопроверка, не независимый QA). Commit `8b3a622c49af58409340965ecb5f0849c3befd7f`, `path: .agents/skills/taxi-evidence-qa/SKILL.md`:
+  - G1: `git ls-tree 8b3a622c… -- <path>` → `100644 blob 5211efe0b6dc63d955e5fa87a7a4e60c6c8da4fc`;
+  - G2: `GET …/git/commits/8b3a622c…` → `sha` = `8b3a622c…`, `tree.sha` = `fdfef94b1bc7eae5d0ed8ad4035abca3469e9375`; `GET …/git/trees/fdfef94b…?recursive=1` → `truncated: false`, запись `mode: 100644`, `type: blob`, `sha: 5211efe0…a4fc`.
+
+  Обоими способами одна и та же запись. Требования `100755` в SPEC нет → `100644` по умолчанию → режим подходит обоим способам.
+
+| Вход (одинаковое дерево `X`, одна запись `path`) | Требование SPEC | G1 | G2 |
+|---|---|---|---|
+| A. `100644 blob` | нет | `PASS` (режим) | `PASS` (режим) |
+| B. `100755 blob` | AC прямо требует `100755` для этого `path` | `PASS` | `PASS` |
+| C. `100755 blob` | нет (или только утверждение автора, HANDOFF, общий glob) | `FAIL (not_regular_file)` | `FAIL (not_regular_file)` |
+| D. `100644 blob` | AC прямо требует `100755` | `FAIL (not_regular_file)` | `FAIL (not_regular_file)` |
+| E. `120000 blob` (symlink) | любое | `FAIL (not_regular_file)` | `FAIL (not_regular_file)` |
+| F. `160000 commit` (submodule) | любое | `FAIL (not_regular_file)` | `FAIL (not_regular_file)` |
+| G. `040000 tree` (каталог) | любое | `FAIL (not_regular_file)` | `FAIL (not_regular_file)` |
+
+После проверки режима действуют прежние правила: git-хэш байтов = `blob_id`, SHA-256 = ожидаемому (TC-36, TC-40).
+
+### TC-48 [S] E5-G: режим не обходится
+
+| Вход | Ожидается |
+|---|---|
+| A. HANDOFF утверждает «файл исполняемый, `100755` разрешён», в SPEC такого требования нет; запись `100755` | `FAIL (not_regular_file)` обоими способами: HANDOFF требований не создаёт |
+| B. Способ G2 выбран, чтобы обойти `FAIL` по режиму в G1 (или наоборот) | итог тот же: правило одно; выбор способа на итог не влияет |
+| C. Contents API или коннектор вернул текст без `mode` из дерева commit | режим не проверен → `NOT_VERIFIED`, а не `PASS` |
+
+---
+
+## K. Регрессия «до (`8b3a622c…`) → после» (`DOC_REVIEW`, red-before / green-after)
+
+«До» — правило на commit `8b3a622c49af58409340965ecb5f0849c3befd7f` (HEAD PR #72, строки по этому commit). «После» — правило в этой редакции. Это логическая проверка текста, а не исполнение кода: runtime `NOT_RUN`, CI не запускался. Самопроверка автора — **не** независимый QA.
+
+| # | Замечание | Кейс | До (`8b3a622c…`) | После |
+|---|---|---|---|---|
+| R29 | Codex P2 #4611549410 | TC-43 A, B, D, F − | preflight L86: отбор `decision: APPROVE` **до** выбора последнего; `REJECT`/`CHANGES` не попадают в выборку, раннее `APPROVE` → S4 `PASS` — **red** | S4 п.1–3: все решения G0 по `created_at`, действующее — последнее действительное; `REJECT` → `BLOCKED (g0_rejected)`, `CHANGES` → `BLOCKED (g0_changes_requested)` — **green** |
+| R30 | Codex P2 #4611549410 | TC-43 C, E; TC-44 E + | последнее `APPROVE` по хэшу → `PASS` | без регрессии: последнее действительное `APPROVE` по хэшу S3 → `PASS` |
+| R31 | Codex P2 #4611549410 | TC-44 A–D, F, G − | отредактированный или relay-G0 недействителен; неоднозначность не описана | S4 п.2, п.4: недействительное `APPROVE` пропускается; недействительное или одновременное `REJECT`/`CHANGES` → `STOP (owner_decision_ambiguous)`; `g0_missing`, `base_mismatch` сохранены — **green**, без ослабления |
+| R32 | Codex P2 #4611549429 | TC-45 A, C, D + | evidence-qa L49: любой `BLOCKED` обрывает цепочку, исключение только для `session_lost` → после `lease_expired` и HEAD-`BLOCKED` RESUME прав не даёт, `STOP` — **red** | §2 п.1: таблица восстановимых `BLOCKED` (§8.1, §8.2) → новый действительный RESUME возвращает права; preflight S6.1 п.3 согласован — **green** |
+| R33 | Codex P2 #4611549429 | TC-45 B + | `session_lost` до RESUME → `PASS` | без регрессии (TC-34) |
+| R34 | Codex P2 #4611549429 | TC-46 A–L − | самовозобновление, поддельный и истёкший RESUME → `STOP`; устаревший `head_sha`, повторная публикация, RESUME после `RELEASE` не описаны | все варианты → `STOP` / `BLOCKED`: новый lease только из RESUME, fencing, `head_sha`, идемпотентность, `REASSIGN`/`RELEASE` прекращают цепочку — **green**, без ослабления |
+| R35 | Codex P2 #4611549445 | TC-47 B | G1 L121 допускает режим, который прямо требует SPEC; G2 L128 жёстко `mode: 100644` → G1 `PASS`, G2 `FAIL (not_regular_file)` на одном дереве — **red** | единое правило «требуемый режим записи» для G1 и G2 → оба `PASS` — **green** |
+| R36 | Codex P2 #4611549445 | TC-47 A, C–G; TC-48 − | `100644` по умолчанию; symlink, submodule, каталог → `FAIL`; `100644` при требовании `100755` и выбор способа для обхода не описаны | одинаковый `FAIL (not_regular_file)` обоими способами; HANDOFF требований не создаёт — **green** |
+| R37 | AC-6 #75 | TC-26 | адаптеры закрепляли `d55f6e55…8b5f` (preflight) и `267cebfa…aeb8` (evidence-qa) | адаптеры закрепляют SHA-256 новых канонических файлов; старые → `BLOCKED (canonical_skill_mismatch)` |
+| R38 | без регрессии | TC-17…TC-42 | green в `8b3a622c…` | разделы A–I не переписаны (дополнена только шапка); прежние правила S3, S5–S9, E1–E9 сохранены по смыслу |
+
+## L. Покрытие критериев Issue #75
+
+| AC #75 | Где |
+|---|---|
+| AC-1 PREFLIGHT, CLAIM, ASSIGN, PRE_WRITE, PRE_HANDOFF | CLAIM, ASSIGN и HANDOFF задачи в #75 |
+| AC-2 PR #72, три замечания, история | вне файлов: HANDOFF задачи; разделы A–I не переписаны |
+| AC-3 S4: последнее решение | preflight S4 п.1–6, шаблон отчёта; TC-43, TC-44; R29–R31 |
+| AC-4 RESUME после восстановимого `BLOCKED` | evidence-qa §2 п.1; preflight S6.1 п.3; TC-45, TC-46; R32–R34 |
+| AC-5 E5-G2 = G1 по режиму | evidence-qa E5-G «требуемый режим записи», G1 п.3, G2 п.2, E6; TC-47, TC-48; R35–R36 |
+| AC-6 хэши адаптеров | `.claude/skills/*/SKILL.md`; R37; HANDOFF |
+| AC-7 регрессии | разделы J, K; `DOC_REVIEW`, runtime `NOT_RUN` |
+| AC-8 история, scope | HANDOFF задачи |
+| AC-9, AC-10 HANDOFF, QA, G2 | вне scope этих файлов: независимый QA и новое личное G2 не выполняются этой редакцией |
+
+Разделы J–L тоже выполняются только чтением: нельзя публиковать сообщения, скачивать вложения или менять Issues.
