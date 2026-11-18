@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import math
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -742,6 +743,353 @@ class RepositoryIsolationTests(unittest.TestCase):
             path = os.path.join(REPO_ROOT, name)
             existed_before = _EXISTED_AT_IMPORT[name]
             self.assertEqual(os.path.exists(path), existed_before, name)
+
+
+# --------------------------------------------------------------------------
+# TAXI-GNSS-QUALITY-VALIDATION-FIX-01 (Issue #82): regressions for F1-F4 found
+# by the independent QA of PR #79. Synthetic values only.
+# --------------------------------------------------------------------------
+
+
+def _rejected_codes(p, rec=None):
+    r = gq.evaluate_fix(p, received_at=received() if rec is None else rec)
+    return r, codes(r)
+
+
+class TimestampHourBoundsF1Tests(unittest.TestCase):
+    """F1: hour 24 must be INVALID_VALUE on every Python version."""
+
+    HOUR_24 = (
+        "2030-01-01T24:00:00Z",
+        "2030-01-01T24:00:00.5Z",
+        "2030-01-01T24:00:00.000000Z",
+        "2030-01-01T24:00:00+00:00",
+        "2030-01-01T24:00:00-00:00",
+        "2030-01-01T24:00:00+03:00",
+        "2030-01-01T24:00:00-05:00",
+        "2030-01-01T24:00:01Z",
+        "2030-01-01T25:00:00Z",
+        "2030-01-01T99:00:00Z",
+    )
+
+    def test_hour_24_and_above_rejected_as_invalid_value(self):
+        for value in self.HOUR_24:
+            with self.subTest(value=value):
+                r, c = _rejected_codes(payload(captured_at=value))
+                self.assertEqual(r.disposition, D.REJECTED)
+                self.assertEqual(c, [("captured_at", "INVALID_VALUE")])
+                self.assertNotIn("FIX_IN_FUTURE", r.reasons)
+                self.assertNotIn("FIX_STALE", r.reasons)
+
+    def test_hour_24_is_not_next_day_midnight_even_when_that_would_be_fresh(self):
+        # On Python 3.14 fromisoformat maps T24:00 to the next midnight; with a
+        # receive time right after that midnight the old code accepted the fix.
+        rec = datetime(2030, 1, 2, 0, 0, 1, tzinfo=timezone.utc)
+        r, c = _rejected_codes(payload(captured_at="2030-01-01T24:00:00Z"), rec)
+        self.assertEqual(r.disposition, D.REJECTED)
+        self.assertFalse(r.valid_measurement)
+        self.assertEqual(c, [("captured_at", "INVALID_VALUE")])
+        ok = gq.evaluate_fix(payload(captured_at="2030-01-02T00:00:00Z"), received_at=rec)
+        self.assertEqual(ok.disposition, D.ACCEPTED_SEGMENT_START)
+
+    def test_minute_and_second_bounds(self):
+        for value in ("2030-01-01T12:60:00Z", "2030-01-01T12:00:60Z", "2030-01-01T12:99:99Z"):
+            with self.subTest(value=value):
+                _, c = _rejected_codes(payload(captured_at=value))
+                self.assertEqual(c, [("captured_at", "INVALID_VALUE")])
+
+    def test_valid_time_boundaries_still_accepted(self):
+        for value, expected in [
+            ("2030-01-01T00:00:00Z", datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc)),
+            ("2030-01-01T23:59:59Z", datetime(2030, 1, 1, 23, 59, 59, tzinfo=timezone.utc)),
+            ("2030-01-01T23:59:59.999999Z",
+             datetime(2030, 1, 1, 23, 59, 59, 999999, tzinfo=timezone.utc)),
+            ("2030-01-01T12:00:00.5Z", datetime(2030, 1, 1, 12, 0, 0, 500000, tzinfo=timezone.utc)),
+            ("2030-01-01T12:00:00.000001Z",
+             datetime(2030, 1, 1, 12, 0, 0, 1, tzinfo=timezone.utc)),
+        ]:
+            with self.subTest(value=value):
+                fix, issues = gq.normalize_fix(payload(captured_at=value), received_at=received())
+                self.assertEqual(issues, ())
+                self.assertEqual(fix.captured_at, expected)
+
+
+class TimestampOffsetBoundsF2Tests(unittest.TestCase):
+    """F2: offset minute 60 (or more) must be INVALID_VALUE, never +/- one hour."""
+
+    def test_offset_minute_60_rejected_even_if_shifted_value_would_be_fresh(self):
+        # If "+00:60" were read as +01:00 these instants would all be 12:00:00Z,
+        # i.e. perfectly fresh for received() = T0 + 1 s.
+        for value in (
+            "2030-01-01T13:00:00+00:60",
+            "2030-01-01T11:00:00-00:60",
+            "2030-01-01T14:00:00+01:60",
+            "2030-01-01T10:00:00-01:60",
+            "2030-01-01T12:00:00+00:99",
+            "2030-01-01T12:00:00.5+05:60",
+        ):
+            with self.subTest(value=value):
+                r, c = _rejected_codes(payload(captured_at=value))
+                self.assertEqual(r.disposition, D.REJECTED)
+                self.assertEqual(c, [("captured_at", "INVALID_VALUE")])
+
+    def test_offset_hour_bounds(self):
+        for value in ("2030-01-01T12:00:00+24:00", "2030-01-01T12:00:00-24:00",
+                      "2030-01-01T12:00:00+99:00", "2030-01-01T12:00:00-99:59"):
+            with self.subTest(value=value):
+                _, c = _rejected_codes(payload(captured_at=value))
+                self.assertEqual(c, [("captured_at", "INVALID_VALUE")])
+
+    def test_valid_offsets_convert_to_utc(self):
+        utc_noon = datetime(2030, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        for value in (
+            "2030-01-01T12:00:00Z",
+            "2030-01-01T12:00:00+00:00",
+            "2030-01-01T12:00:00-00:00",
+            "2030-01-01T17:30:00+05:30",
+            "2030-01-01T09:00:00-03:00",
+            "2030-01-01T12:59:00+00:59",
+            "2030-01-01T11:01:00-00:59",
+            "2030-01-02T11:59:00+23:59",
+            "2029-12-31T12:01:00-23:59",
+        ):
+            with self.subTest(value=value):
+                fix, issues = gq.normalize_fix(payload(captured_at=value), received_at=received())
+                self.assertEqual(issues, ())
+                self.assertEqual(fix.captured_at, utc_noon)
+                self.assertEqual(fix.captured_at.utcoffset(), timedelta(0))
+                self.assertEqual(fix.to_dict()["captured_at"], "2030-01-01T12:00:00Z")
+
+    def test_offset_fix_still_classified_by_freshness(self):
+        r = gq.evaluate_fix(payload(captured_at="2030-01-01T17:30:00+05:30"), received_at=received())
+        self.assertEqual(r.disposition, D.ACCEPTED_SEGMENT_START)
+        stale = gq.evaluate_fix(payload(captured_at="2030-01-01T17:24:00+05:30"), received_at=received())
+        self.assertEqual(stale.reasons, ("FIX_STALE",))
+
+    def test_string_received_at_uses_the_same_strict_parser(self):
+        for value in ("2030-01-01T24:00:00Z", "2030-01-01T12:00:00+00:60", "2030-01-01T12:00:00Z\n"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    gq.normalize_fix(payload(), received_at=value)
+        fix, _ = gq.normalize_fix(payload(), received_at="2030-01-01T17:30:01+05:30")
+        self.assertEqual(fix.received_at, received())
+        with self.assertRaises(ValueError):
+            gq.normalize_fix(payload(), received_at=datetime(2030, 1, 1, 12, 0, 1))
+
+
+class TimestampStrictnessTests(unittest.TestCase):
+    """AC-3: calendar validity, ASCII-only digits, no trailing newline, no crash."""
+
+    def test_invalid_calendar_dates(self):
+        for value in ("2030-02-29T12:00:00Z", "2030-04-31T12:00:00Z", "2030-00-10T12:00:00Z",
+                      "2030-01-00T12:00:00Z", "0000-01-01T00:00:00Z"):
+            with self.subTest(value=value):
+                _, c = _rejected_codes(payload(captured_at=value))
+                self.assertEqual(c, [("captured_at", "INVALID_VALUE")])
+        fix, issues = gq.normalize_fix(payload(captured_at="2028-02-29T12:00:00Z"), received_at=received())
+        self.assertEqual(issues, ())
+        self.assertEqual(fix.captured_at, datetime(2028, 2, 29, 12, tzinfo=timezone.utc))
+
+    def test_out_of_range_after_utc_conversion_is_invalid_value_not_crash(self):
+        for value in ("0001-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00"):
+            with self.subTest(value=value):
+                fix, issues = gq.normalize_fix(payload(captured_at=value), received_at=received())
+                self.assertIsNone(fix)
+                self.assertEqual([(i.field, i.code) for i in issues], [("captured_at", "INVALID_VALUE")])
+
+    def test_trailing_newline_and_non_ascii_digits_rejected(self):
+        for value in ("2030-01-01T12:00:00Z\n", "2030-01-01T12:00:00+00:00\n",
+                      "2030-01-01T12:00:00Z\r", "٢٠٣٠-01-01T12:00:00Z",
+                      "2030-01-01T12:00:00Ｚ", "2030-01-01T12:00:00z",
+                      "2030-01-01t12:00:00Z", "2030-01-01T12:00Z"):
+            with self.subTest(value=value):
+                r, c = _rejected_codes(payload(captured_at=value))
+                self.assertEqual(r.disposition, D.REJECTED)
+                self.assertEqual(c, [("captured_at", "INVALID_FORMAT")])
+
+    def test_parser_does_not_depend_on_fromisoformat(self):
+        path = os.path.join(REPO_ROOT, "gnss_quality.py")
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        attrs = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        self.assertNotIn("fromisoformat", attrs)
+
+    def test_invalid_timestamps_vectors_focused(self):
+        # Same vectors as RejectionTests.test_invalid_timestamps, checked directly
+        # against the parser so a version-specific regression is pinpointed.
+        for value, code in [
+            ("2030-01-01 12:00:00Z", "INVALID_FORMAT"),
+            ("2030-13-01T12:00:00Z", "INVALID_VALUE"),
+            ("2030-01-01T24:00:00Z", "INVALID_VALUE"),
+            ("2030-01-01T23:59:60Z", "INVALID_VALUE"),
+            ("1893456000", "INVALID_FORMAT"),
+            ("", "INVALID_FORMAT"),
+            (1893456000, "INVALID_TYPE"),
+            ("2030-01-01T12:00:00.1234567Z", "PRECISION_UNSUPPORTED"),
+        ]:
+            with self.subTest(value=value):
+                self.assertEqual(gq._parse_timestamp(value), (None, code))
+
+    def test_invalid_timestamps_on_every_installed_cpython(self):
+        # Cross-version regression: rerun the previously failing test in a fresh
+        # isolated interpreter for each python3.N found on PATH (absent ones are
+        # skipped as subtests). The current interpreter always runs.
+        test_id = "tests.test_gnss_quality.RejectionTests.test_invalid_timestamps"
+        interpreters = {os.path.realpath(sys.executable): sys.executable}
+        for minor in range(11, 16):
+            found = shutil.which(f"python3.{minor}")
+            if found:
+                interpreters.setdefault(os.path.realpath(found), found)
+        # -I drops cwd from sys.path, so the repository root is passed explicitly.
+        code = (
+            "import sys, unittest; sys.path.insert(0, sys.argv[1]);"
+            "suite = unittest.defaultTestLoader.loadTestsFromName(sys.argv[2]);"
+            "res = unittest.TextTestRunner(verbosity=0).run(suite);"
+            "sys.exit(0 if res.wasSuccessful() and res.testsRun == 1 else 1)"
+        )
+        for exe in interpreters.values():
+            with self.subTest(python=exe):
+                out = subprocess.run(
+                    [exe, "-I", "-c", code, REPO_ROOT, test_id],
+                    capture_output=True, text=True, timeout=120, cwd=REPO_ROOT,
+                )
+                self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+                self.assertIn("Ran 1 test", out.stderr)
+
+
+class PointIdFullStringF3Tests(unittest.TestCase):
+    """F3: point_id is validated as the whole string, no trailing-newline bypass."""
+
+    BAD = (
+        "abc\n",
+        "a" * 64 + "\n",
+        "a" * 63 + "\n",
+        "abc\r",
+        "abc\r\n",
+        "\nabc",
+        "abc ",
+        "abc\t",
+        "a\x00b",
+        "abc ",
+        "аbc",  # Cyrillic a
+        "ａbc",  # fullwidth a
+        "á",
+        "_lead",
+        ".lead",
+        ":lead",
+        "a" * 65,
+        "a" * 65 + "\n",
+    )
+
+    def test_trailing_newline_and_non_alphabet_rejected(self):
+        for value in self.BAD:
+            with self.subTest(value=value):
+                r, c = _rejected_codes(payload(point_id=value))
+                self.assertEqual(r.disposition, D.REJECTED)
+                self.assertEqual(c, [("point_id", "INVALID_FORMAT")])
+
+    def test_raw_json_newline_point_id_rejected(self):
+        raw = (
+            '{"point_id":"abc\\n","lat":0.0,"lng":0.0,'
+            '"captured_at":"2030-01-01T12:00:00Z","source":"unknown"}'
+        )
+        r = gq.evaluate_fix(raw, received_at=received())
+        self.assertEqual(codes(r), [("point_id", "INVALID_FORMAT")])
+
+    def test_legal_ids_of_length_1_and_64_still_accepted(self):
+        for value in ("a", "Z", "0", "a" * 64, "Z" * 63 + "9", "A-b.c", "x:y.z-1",
+                      "0f8c2b1e-4a7d-4c3b-9e21-5d6f7a8b9c0d"):
+            with self.subTest(value=value):
+                r = gq.evaluate_fix(payload(point_id=value), received_at=received())
+                self.assertTrue(r.valid_measurement, r)
+                self.assertEqual(r.fix.point_id, value)
+
+    def test_newline_variant_does_not_hit_idempotency_against_anchor(self):
+        prev = anchor(1, point_id="abc")
+        r = gq.evaluate_fix(payload(2, point_id="abc\n", t=10.0), received_at=received(10.0), previous=prev)
+        self.assertEqual(r.disposition, D.REJECTED)
+        self.assertEqual(codes(r), [("point_id", "INVALID_FORMAT")])
+        self.assertIs(r.next_anchor, prev)
+
+    def test_duplicate_and_conflict_classification_preserved_for_64_char_id(self):
+        pid = "b" * 64
+        prev = anchor(1, point_id=pid)
+        dup = gq.evaluate_fix(payload(1, point_id=pid), received_at=received(5.0), previous=prev)
+        self.assertEqual(dup.reasons, ("DUPLICATE_POINT_ID",))
+        self.assertEqual(dup.distance_contribution_m, 0.0)
+        self.assertIs(dup.next_anchor, prev)
+        conflict = gq.evaluate_fix(payload(1, point_id=pid, lat=north(100.0)),
+                                   received_at=received(), previous=prev)
+        self.assertEqual(conflict.reasons, ("POINT_ID_CONFLICT",))
+        self.assertIs(conflict.next_anchor, prev)
+
+
+class NewSegmentNullF4Tests(unittest.TestCase):
+    """F4: absent new_segment defaults to False; explicit null is INVALID_TYPE."""
+
+    def test_explicit_null_rejected(self):
+        r, c = _rejected_codes(payload(new_segment=None))
+        self.assertEqual(r.disposition, D.REJECTED)
+        self.assertIsNone(r.fix)
+        self.assertEqual(c, [("new_segment", "INVALID_TYPE")])
+
+    def test_explicit_null_in_raw_json_rejected(self):
+        raw = (
+            '{"point_id":"p1","lat":0.0,"lng":0.0,"captured_at":"2030-01-01T12:00:00Z",'
+            '"source":"unknown","accuracy_m":10.0,"new_segment":null}'
+        )
+        r = gq.evaluate_fix(raw, received_at=received())
+        self.assertEqual(codes(r), [("new_segment", "INVALID_TYPE")])
+
+    def test_absent_defaults_to_false(self):
+        p = payload()
+        self.assertNotIn("new_segment", p)
+        r = gq.evaluate_fix(p, received_at=received())
+        self.assertTrue(r.valid_measurement)
+        self.assertIs(r.fix.new_segment, False)
+        self.assertIs(r.fix.to_dict()["new_segment"], False)
+
+    def test_impostors_rejected(self):
+        for value in (0, 1, 1.0, 0.0, "true", "false", "", "null", [], {}, [True]):
+            with self.subTest(value=value):
+                _, c = _rejected_codes(payload(new_segment=value))
+                self.assertEqual(c, [("new_segment", "INVALID_TYPE")])
+
+    def test_downstream_segment_and_distance_semantics(self):
+        prev = anchor(1)
+        moved_false = gq.evaluate_fix(payload(2, lat=north(100.0), t=10.0, new_segment=False),
+                                      received_at=received(10.0), previous=prev)
+        self.assertEqual(moved_false.disposition, D.ACCEPTED_MOVEMENT)
+        self.assertAlmostEqual(moved_false.distance_contribution_m, 100.0, places=6)
+        self.assertFalse(moved_false.starts_new_segment)
+
+        moved_absent = gq.evaluate_fix(payload(2, lat=north(100.0), t=10.0),
+                                       received_at=received(10.0), previous=prev)
+        self.assertEqual(moved_absent.distance_contribution_m, moved_false.distance_contribution_m)
+
+        moved_true = gq.evaluate_fix(payload(2, lat=north(100.0), t=10.0, new_segment=True),
+                                     received_at=received(10.0), previous=prev)
+        self.assertEqual(moved_true.disposition, D.ACCEPTED_SEGMENT_START)
+        self.assertEqual(moved_true.reasons, ("SEGMENT_REQUESTED",))
+        self.assertEqual(moved_true.distance_contribution_m, 0.0)
+        self.assertTrue(moved_true.starts_new_segment)
+
+        moved_null = gq.evaluate_fix(payload(2, lat=north(100.0), t=10.0, new_segment=None),
+                                     received_at=received(10.0), previous=prev)
+        self.assertEqual(moved_null.disposition, D.REJECTED)
+        self.assertEqual(moved_null.distance_contribution_m, 0.0)
+        self.assertIs(moved_null.next_anchor, prev)
+
+    def test_sequence_total_ignores_null_flag_fix(self):
+        items = [
+            (payload(1, t=0.0), received(0.0)),
+            (payload(2, lat=north(100.0), t=10.0, new_segment=None), received(10.0)),
+            (payload(3, lat=north(100.0), t=20.0, new_segment=False), received(20.0)),
+        ]
+        res = gq.evaluate_sequence(items)
+        self.assertEqual([e.disposition for e in res.evaluations],
+                         [D.ACCEPTED_SEGMENT_START, D.REJECTED, D.ACCEPTED_MOVEMENT])
+        self.assertAlmostEqual(res.total_distance_m, 100.0, places=6)
 
 
 _EXISTED_AT_IMPORT = {

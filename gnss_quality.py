@@ -27,7 +27,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Optional, Tuple
 
 __all__ = [
@@ -64,10 +64,21 @@ EARTH_RADIUS_M = 6_371_000.0
 MAX_POINT_ID_LENGTH = 64
 MAX_JSON_BYTES = 4096
 
-_POINT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+# Always applied with ``fullmatch``: ``$`` would also match before a trailing
+# "\n", which let "abc\n" and a 65-character "a"*64 + "\n" through (F3).
+_POINT_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}", re.ASCII)
 # RFC 3339 profile: explicit offset required, at most 6 fractional digits.
+# ASCII digits only and ``fullmatch`` (no trailing newline). Field ranges are
+# checked explicitly in ``_parse_timestamp`` instead of relying on
+# ``datetime.fromisoformat``, whose accepted forms differ between Python
+# versions (3.14 accepts hour 24 as next-day midnight, F1) and which turns an
+# offset minute of 60 into a whole hour (F2).
 _TIMESTAMP_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$"
+    r"(?P<year>[0-9]{4})-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})"
+    r"T(?P<hour>[0-9]{2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2})"
+    r"(?:\.(?P<fraction>[0-9]{1,6}))?"
+    r"(?:Z|(?P<sign>[+-])(?P<off_hour>[0-9]{2}):(?P<off_minute>[0-9]{2}))",
+    re.ASCII,
 )
 
 _REQUIRED_FIELDS = ("point_id", "lat", "lng", "captured_at", "source")
@@ -265,20 +276,48 @@ def _parse_timestamp(value: Any) -> Tuple[Optional[datetime], Optional[str]]:
     """Parse a strict RFC 3339 string with explicit offset into aware UTC."""
     if not isinstance(value, str):
         return None, "INVALID_TYPE"
-    if not _TIMESTAMP_RE.match(value):
+    match = _TIMESTAMP_RE.fullmatch(value)
+    if match is None:
         if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$", value):
             return None, "TIMEZONE_NAIVE"
         if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7,}", value):
             return None, "PRECISION_UNSUPPORTED"
         return None, "INVALID_FORMAT"
-    text = value[:-1] + "+00:00" if value.endswith("Z") else value
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
+    hour = int(match["hour"])
+    minute = int(match["minute"])
+    second = int(match["second"])
+    # RFC 3339 section 5.6: time-hour 00-23, time-minute 00-59, time-second
+    # 00-59 (leap second 60 is not supported) and the same hour/minute ranges
+    # for the numeric offset. Out-of-range values are rejected, never rolled
+    # over into the next day or into a shifted offset hour.
+    if hour > 23 or minute > 59 or second > 59:
         return None, "INVALID_VALUE"
-    if parsed.tzinfo is None or parsed.utcoffset() is None:  # defensive
-        return None, "TIMEZONE_NAIVE"
-    return parsed.astimezone(timezone.utc), None
+    offset = timedelta(0)
+    if match["sign"] is not None:
+        off_hour = int(match["off_hour"])
+        off_minute = int(match["off_minute"])
+        if off_hour > 23 or off_minute > 59:
+            return None, "INVALID_VALUE"
+        offset = timedelta(hours=off_hour, minutes=off_minute)
+        if match["sign"] == "-":
+            offset = -offset
+    fraction = match["fraction"]
+    microsecond = int(fraction.ljust(6, "0")) if fraction else 0
+    try:
+        parsed = datetime(
+            int(match["year"]),
+            int(match["month"]),
+            int(match["day"]),
+            hour,
+            minute,
+            second,
+            microsecond,
+            tzinfo=timezone(offset),
+        )
+        # Year 1 / year 9999 with an offset can fall outside datetime's range in UTC.
+        return parsed.astimezone(timezone.utc), None
+    except (ValueError, OverflowError):
+        return None, "INVALID_VALUE"
 
 
 def _coerce_received_at(value: Any) -> datetime:
@@ -399,7 +438,7 @@ def normalize_fix(
     if point_id is not None:
         if not isinstance(point_id, str):
             issues.append(Issue("point_id", "INVALID_TYPE"))
-        elif not _POINT_ID_RE.match(point_id):
+        elif not _POINT_ID_RE.fullmatch(point_id):
             issues.append(Issue("point_id", "INVALID_FORMAT"))
         else:
             values["point_id"] = point_id
@@ -436,9 +475,8 @@ def normalize_fix(
         else:
             values["source"] = source
 
+    # Absent -> False. An explicit JSON null is a type error, not "false" (F4).
     new_segment = payload.get("new_segment", False)
-    if new_segment is None:
-        new_segment = False
     if not isinstance(new_segment, bool):
         issues.append(Issue("new_segment", "INVALID_TYPE"))
     values["new_segment"] = new_segment is True
