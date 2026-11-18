@@ -231,14 +231,6 @@ def _empty_state() -> dict:
     }
 
 
-def _read_json(path: str, fallback):
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except (FileNotFoundError, OSError, ValueError):
-        return fallback
-
-
 def _write_json(path: str, data) -> None:
     """Атомарная запись JSON, чтобы файл не остался битым."""
     tmp_path = path + ".tmp"
@@ -365,12 +357,33 @@ def _archive_shift(shift: dict, car_brand: str = "", car_plate: str = "") -> dic
     }
 
 
-def _append_history(record: dict) -> None:
-    history = _read_json(HISTORY_FILE, [])
-    if not isinstance(history, list):
-        history = []
-    history.append(record)
-    _write_json(HISTORY_FILE, history)
+class HistoryReadError(Exception):
+    """Файл истории смен есть, но прочитать его как JSON-массив не удалось."""
+
+
+def _load_history_file() -> list:
+    """Читает HISTORY_FILE строго.
+
+    Пустой список — только если файла нет (смен ещё не завершали). Любая
+    другая ошибка чтения, битый JSON или кодировка, корень не-массив —
+    HistoryReadError: такую историю нельзя показывать пустой и перезаписывать.
+    """
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError, RecursionError) as exc:
+        raise HistoryReadError(f"{type(exc).__name__}: {exc}") from exc
+
+    if not isinstance(data, list):
+        raise HistoryReadError(f"JSON root is {type(data).__name__}, expected array")
+    return data
+
+
+def _append_history(history: list, record: dict) -> None:
+    """Дописывает смену к истории, уже прочитанной через _load_history_file."""
+    _write_json(HISTORY_FILE, history + [record])
 
 
 def _normalise_history_record(raw) -> dict | None:
@@ -676,6 +689,21 @@ def handle_state_read_error(exc: StateReadError):
     )
 
 
+@app.errorhandler(HistoryReadError)
+def handle_history_read_error(exc: HistoryReadError):
+    """История смен повреждена или недоступна: ничего не пишем, отвечаем 503."""
+    app.logger.error("История смен не прочитана (%s): %s", HISTORY_FILE, exc)
+    return (
+        jsonify(
+            {
+                "error": "История смен повреждена или недоступна. "
+                "Данные не изменены; нужна ручная проверка shift_history.json.",
+            }
+        ),
+        503,
+    )
+
+
 @app.get("/")
 def index():
     """Главная страница с картой, пробегом и деньгами."""
@@ -701,10 +729,7 @@ def api_state():
 def api_history():
     """Завершённые смены с детальным журналом операций, новые сверху."""
     with _state_lock:
-        records = _read_json(HISTORY_FILE, [])
-
-    if not isinstance(records, list):
-        records = []
+        records = _load_history_file()
 
     normalized = [
         record
@@ -881,13 +906,18 @@ def api_add_expense():
 def api_finish_shift():
     """Архивирует текущую смену в историю и начинает новую."""
     with _state_lock:
+        # История проверяется до любой записи (и до _read_state, который
+        # может сохранить состояние при первом запуске): если она повреждена,
+        # HistoryReadError даёт 503, состояние и история не меняются,
+        # текущая смена не сбрасывается.
+        history = _load_history_file()
         state = _read_state()
         archived = _archive_shift(
             state["shift"],
             car_brand=state.get("car_brand", ""),
             car_plate=state.get("car_plate", ""),
         )
-        _append_history(archived)
+        _append_history(history, archived)
 
         state["shift"] = _new_shift()
         _write_state(state)
