@@ -425,8 +425,13 @@ class PreservedBehaviourTests(_IsolatedStorageCase):
         shifts = response.get_json()["shifts"]
         self.assertEqual([item["id"] for item in shifts], ["synthhist001"])
 
-    def test_history_route_keeps_existing_fallbacks(self):
-        """History-only вызов по-прежнему отдаёт пустой список для битой истории."""
+    def test_history_route_separates_missing_from_corrupt(self):
+        """Отсутствующая история — пустой список; битая или не-массив — 503.
+
+        Раньше этот тест (test_history_route_keeps_existing_fallbacks)
+        закреплял пустой список и для битой истории; TAXI-HISTORY-READ-GUARD-01
+        заменил это ожидание. В обоих случаях хранилище не меняется.
+        """
         for label, data in {"malformed": b"{oops", "non_list": b'{"a": 1}', "missing": None}.items():
             with self.subTest(case=label):
                 if data is None:
@@ -436,8 +441,14 @@ class PreservedBehaviourTests(_IsolatedStorageCase):
                     self.write_bytes(self.history_file, data)
                 before = self.snapshot()
                 response = self.client.get("/api/history")
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.get_json(), {"shifts": []})
+                if data is None:
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.get_json(), {"shifts": []})
+                else:
+                    self.assertEqual(response.status_code, 503)
+                    payload = response.get_json()
+                    self.assertTrue(payload.get("error"))
+                    self.assertNotIn("shifts", payload)
                 self.assertEqual(self.snapshot(), before)
 
     def test_history_route_independent_of_corrupt_state(self):
